@@ -18,10 +18,10 @@ from ez_fai_builder import (
     TOLERANCE_PATTERN,
     add_pdf_balloons,
     extract_pdf_dimensions,
-    fill_fai_template,
     get_last_skipped_candidates,
     write_debug_report,
 )
+from fai_template_writer import fill_fai_template, template_row_capacity
 
 LOCAL_INPUTS_DIR = Path("local_inputs")
 LOCAL_OUTPUTS_DIR = Path("local_outputs")
@@ -68,6 +68,7 @@ def write_extraction_summary(
     output_path: str | Path,
     characteristics: list[Characteristic],
     skipped_candidates: list[SkippedCandidate] | None = None,
+    template_capacity: int | None = None,
 ) -> Path:
     """Write a concise extraction and skipped-candidate summary."""
     output_path = Path(output_path)
@@ -83,6 +84,12 @@ def write_extraction_summary(
         "EZ FAI Extraction Summary",
         "=========================",
         f"Total extracted characteristics: {len(characteristics)}",
+    ]
+    if template_capacity is not None:
+        lines.append(f"Template row capacity: {template_capacity}")
+        if len(characteristics) > template_capacity:
+            lines.append(f"WARNING: Only the first {template_capacity} characteristics fit on this exact form. Extra characteristics need a continuation sheet or manual handling.")
+    lines.extend([
         "",
         "Count by type:",
         f"  LINEAR: {type_counts.get('LINEAR', 0)}",
@@ -93,7 +100,7 @@ def write_extraction_summary(
         "",
         f"Count of skipped candidates: {len(skipped_candidates)}",
         "Skipped-candidate summary:",
-    ]
+    ])
     if skipped_by_reason:
         for reason, count in skipped_by_reason.most_common():
             lines.append(f"  {reason}: {count}")
@@ -144,15 +151,18 @@ def run_local_test(pdf_path: str | Path, template_path: str | Path, output_dir: 
     for characteristic in characteristics:
         characteristic.metadata["drawing_name"] = pdf_path.stem
 
+    capacity = template_row_capacity(template_path)
+
     ballooned_pdf = output_dir / f"{pdf_path.stem}_BALLOONED.pdf"
-    fai_excel = output_dir / f"{pdf_path.stem}_FAI.xlsx"
+    suffix = ".xlsm" if template_path.suffix.lower() == ".xlsm" else ".xlsx"
+    fai_excel = output_dir / f"{pdf_path.stem}_FAI{suffix}"
     debug_report = output_dir / DEBUG_REPORT_FILENAME
     extraction_summary = output_dir / SUMMARY_FILENAME
 
     add_pdf_balloons(pdf_path, characteristics, ballooned_pdf)
     fill_fai_template(template_path, characteristics, fai_excel)
     write_debug_report(pdf_path, template_path, characteristics, debug_report)
-    write_extraction_summary(extraction_summary, characteristics, get_last_skipped_candidates())
+    write_extraction_summary(extraction_summary, characteristics, get_last_skipped_candidates(), capacity)
 
     return {
         "ballooned_pdf": ballooned_pdf,
