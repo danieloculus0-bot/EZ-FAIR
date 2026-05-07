@@ -64,7 +64,39 @@ def test_r3_template_writer_preserves_form_and_inclusive_formula(tmp_path):
     assert "<=E24" in ws["K24"].value
     assert ws["M24"].value == "CALIPER"
     assert ws["N24"].value == "AFTER GALVANIZE"
-    assert len(ws.data_validations.dataValidation) >= 2
+    assert len(ws.data_validations.dataValidation) >= 3
+
+
+def test_r3_template_writer_fills_optional_header_metadata(tmp_path):
+    template = tmp_path / "EZ_FAB_1st_Article_Form_R3.xlsx"
+    output = tmp_path / "filled.xlsx"
+    make_r3_like_template(template)
+    chars = [
+        FakeCharacteristic(
+            1,
+            "P1-R1C1",
+            16.0,
+            15.98,
+            16.02,
+            "LINEAR",
+            "CALIPER",
+            "",
+            metadata={
+                "part_no": "V9050SP-104B-01",
+                "part_name": "LOUVER INTAKE REAR SIDE CAP",
+                "drawing_no": "V9050SP-104B-01",
+                "revision": "A",
+            },
+        )
+    ]
+
+    fill_fai_template(template, chars, output)
+    wb = load_workbook(output, data_only=False)
+    ws = wb["FAI FORM"]
+    assert ws["B6"].value == "V9050SP-104B-01"
+    assert ws["J6"].value == "LOUVER INTAKE REAR SIDE CAP"
+    assert ws["J8"].value == "V9050SP-104B-01"
+    assert ws["J10"].value == "A"
 
 
 def test_generic_template_still_works(tmp_path):
