@@ -25,7 +25,11 @@ jobs:
 
       - name: Compile scripts
         run: |
-          python -m py_compile ez_fai_builder.py local_test_runner.py
+          python -m py_compile ez_fai_builder.py local_test_runner.py tools/repo_health.py
+
+      - name: Repo health check
+        run: |
+          python tools/repo_health.py
 
       - name: Run tests if present
         run: |
@@ -50,10 +54,12 @@ jobs:
           c.drawString(180, 700, '76.00°')
           c.drawString(100, 650, 'Ø .810')
           c.drawString(100, 610, '4.69 +.13 -.03')
-          c.drawString(100, 560, 'DIMENSIONS ARE IN INCHES')
-          c.drawString(100, 540, 'TWO PLACE DECIMAL 0.02')
-          c.drawString(100, 520, 'THREE PLACE DECIMAL 0.005')
-          c.drawString(100, 500, 'ANGULAR 2')
+          c.drawString(100, 560, 'NO WELD AT SLOT LOCATIONS .25')
+          c.drawString(100, 520, 'DIMENSIONS ARE IN INCHES')
+          c.drawString(100, 500, 'TWO PLACE DECIMAL 0.02')
+          c.drawString(100, 480, 'THREE PLACE DECIMAL 0.005')
+          c.drawString(100, 460, 'ANGULAR 2')
+          c.drawString(100, 440, 'ALL METAL PARTS TO BE GALVANIZED')
           c.save()
 
           wb = Workbook()
