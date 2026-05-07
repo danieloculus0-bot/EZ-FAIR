@@ -9,3 +9,7 @@ local_outputs/
 *.xlsm
 *_BALLOONED.pdf
 *_FAI.xlsx
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
