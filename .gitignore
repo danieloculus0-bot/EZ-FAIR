@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+local_inputs/
+local_outputs/
+*.pdf
+*.xlsx
+*.xlsm
+*_BALLOONED.pdf
+*_FAI.xlsx
