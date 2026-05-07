@@ -1,0 +1,75 @@
+name: EZ-FAIR tests
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest reportlab
+
+      - name: Compile scripts
+        run: |
+          python -m py_compile ez_fai_builder.py local_test_runner.py
+
+      - name: Run tests if present
+        run: |
+          if [ -d tests ]; then python -m pytest -q; else echo "No tests folder found yet."; fi
+
+      - name: Smoke test local runner
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from reportlab.pdfgen import canvas
+          from openpyxl import Workbook
+          import subprocess, sys, tempfile
+
+          root = Path(tempfile.mkdtemp())
+          pdf = root / 'DVM-AE.pdf'
+          template = root / 'template.xlsx'
+          out = root / 'out'
+          out.mkdir()
+
+          c = canvas.Canvas(str(pdf))
+          c.drawString(100, 700, '16.00')
+          c.drawString(180, 700, '76.00°')
+          c.drawString(100, 650, 'Ø .810')
+          c.drawString(100, 610, '4.69 +.13 -.03')
+          c.drawString(100, 560, 'DIMENSIONS ARE IN INCHES')
+          c.drawString(100, 540, 'TWO PLACE DECIMAL 0.02')
+          c.drawString(100, 520, 'THREE PLACE DECIMAL 0.005')
+          c.drawString(100, 500, 'ANGULAR 2')
+          c.save()
+
+          wb = Workbook()
+          ws = wb.active
+          headers = ['Char Number','Reference Location','Requirement LSL','Requirement Nominal','Requirement USL','Type','EZ Fabricating Actual','In Spec','Tooling Used','Comments']
+          for i, h in enumerate(headers, 1):
+              ws.cell(row=1, column=i).value = h
+          wb.save(template)
+
+          subprocess.check_call([sys.executable, 'local_test_runner.py', '--pdf', str(pdf), '--template', str(template), '--output-dir', str(out)])
+
+          expected = ['DVM-AE_BALLOONED.pdf', 'DVM-AE_FAI.xlsx', 'EZ_FAI_DEBUG_REPORT.txt', 'EXTRACTION_SUMMARY.txt']
+          missing = [name for name in expected if not (out / name).exists()]
+          if missing:
+              raise SystemExit(f'Missing outputs: {missing}')
+          print('Smoke test outputs created:')
+          for name in expected:
+              print(out / name)
+          PY
