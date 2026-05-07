@@ -25,7 +25,7 @@ jobs:
 
       - name: Compile scripts
         run: |
-          python -m py_compile ez_fai_builder.py local_test_runner.py tools/repo_health.py
+          python -m py_compile ez_fai_builder.py local_test_runner.py tools/repo_health.py tools/make_demo_inputs.py
 
       - name: Repo health check
         run: |
@@ -35,47 +35,25 @@ jobs:
         run: |
           if [ -d tests ]; then python -m pytest -q; else echo "No tests folder found yet."; fi
 
+      - name: Generate demo inputs
+        run: |
+          python tools/make_demo_inputs.py --output-dir demo_inputs
+
       - name: Smoke test local runner
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          from reportlab.pdfgen import canvas
-          from openpyxl import Workbook
-          import subprocess, sys, tempfile
+          mkdir -p demo_outputs
+          python local_test_runner.py --pdf demo_inputs/demo_drawing.pdf --template demo_inputs/demo_template.xlsx --output-dir demo_outputs
+          test -f demo_outputs/demo_drawing_BALLOONED.pdf
+          test -f demo_outputs/demo_drawing_FAI.xlsx
+          test -f demo_outputs/EZ_FAI_DEBUG_REPORT.txt
+          test -f demo_outputs/EXTRACTION_SUMMARY.txt
 
-          root = Path(tempfile.mkdtemp())
-          pdf = root / 'DVM-AE.pdf'
-          template = root / 'template.xlsx'
-          out = root / 'out'
-          out.mkdir()
-
-          c = canvas.Canvas(str(pdf))
-          c.drawString(100, 700, '16.00')
-          c.drawString(180, 700, '76.00°')
-          c.drawString(100, 650, 'Ø .810')
-          c.drawString(100, 610, '4.69 +.13 -.03')
-          c.drawString(100, 560, 'NO WELD AT SLOT LOCATIONS .25')
-          c.drawString(100, 520, 'DIMENSIONS ARE IN INCHES')
-          c.drawString(100, 500, 'TWO PLACE DECIMAL 0.02')
-          c.drawString(100, 480, 'THREE PLACE DECIMAL 0.005')
-          c.drawString(100, 460, 'ANGULAR 2')
-          c.drawString(100, 440, 'ALL METAL PARTS TO BE GALVANIZED')
-          c.save()
-
-          wb = Workbook()
-          ws = wb.active
-          headers = ['Char Number','Reference Location','Requirement LSL','Requirement Nominal','Requirement USL','Type','EZ Fabricating Actual','In Spec','Tooling Used','Comments']
-          for i, h in enumerate(headers, 1):
-              ws.cell(row=1, column=i).value = h
-          wb.save(template)
-
-          subprocess.check_call([sys.executable, 'local_test_runner.py', '--pdf', str(pdf), '--template', str(template), '--output-dir', str(out)])
-
-          expected = ['DVM-AE_BALLOONED.pdf', 'DVM-AE_FAI.xlsx', 'EZ_FAI_DEBUG_REPORT.txt', 'EXTRACTION_SUMMARY.txt']
-          missing = [name for name in expected if not (out / name).exists()]
-          if missing:
-              raise SystemExit(f'Missing outputs: {missing}')
-          print('Smoke test outputs created:')
-          for name in expected:
-              print(out / name)
-          PY
+      - name: Upload demo outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: ez-fair-demo-outputs
+          path: |
+            demo_outputs/demo_drawing_BALLOONED.pdf
+            demo_outputs/demo_drawing_FAI.xlsx
+            demo_outputs/EZ_FAI_DEBUG_REPORT.txt
+            demo_outputs/EXTRACTION_SUMMARY.txt
