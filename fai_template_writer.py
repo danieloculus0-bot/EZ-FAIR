@@ -68,6 +68,19 @@ LIST_SHEET_SPECS = {
     "ATTRIBUTE": ["PASS", "FAIL"],
 }
 
+R3_HEADER_METADATA_CELLS = {
+    "part_no": "B6",
+    "part_name": "J6",
+    "drawing_no": "J8",
+    "revision": "J10",
+    "date": "B8",
+    "inspector": "B10",
+    "item_no": "B12",
+    "order_no": "B14",
+    "po_no": "J12",
+    "reason_for_fai": "J14",
+}
+
 
 def _norm(value: Any) -> str:
     return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
@@ -75,6 +88,11 @@ def _norm(value: Any) -> str:
 
 def _safe_cell_value(characteristic: Any, attr: str, default: Any = "") -> Any:
     return getattr(characteristic, attr, default)
+
+
+def _characteristic_metadata(characteristic: Any) -> dict[str, Any]:
+    metadata = getattr(characteristic, "metadata", {}) or {}
+    return metadata if isinstance(metadata, dict) else {}
 
 
 def _row_values(characteristic: Any) -> dict[str, Any]:
@@ -160,7 +178,18 @@ def _reset_r3_rows(ws, start_row: int, end_row: int) -> None:
         ws.cell(row=row, column=R3_COLUMNS["In Spec"]).value = _r3_inclusive_formula(row)
 
 
+def _fill_r3_header(ws, characteristics: list[Any]) -> None:
+    if not characteristics:
+        return
+    metadata = _characteristic_metadata(characteristics[0])
+    for key, cell_ref in R3_HEADER_METADATA_CELLS.items():
+        value = metadata.get(key)
+        if value not in (None, ""):
+            ws[cell_ref].value = value
+
+
 def _fill_r3_form(ws, characteristics: list[Any]) -> int:
+    _fill_r3_header(ws, characteristics)
     _reset_r3_rows(ws, R3_START_ROW, R3_END_ROW)
     filled = min(len(characteristics), R3_END_ROW - R3_START_ROW + 1)
     for offset, characteristic in enumerate(characteristics[:filled]):
@@ -179,6 +208,7 @@ def _fill_r3_form(ws, characteristics: list[Any]) -> int:
     ws["K16"].value = '=IF(COUNTA(J24:J48)=0,"",IF(SUMPRODUCT(--(J24:J48<>""),--(K24:K48<>"X"))>0,"FAIL","PASS"))'
     _add_list_validation(ws, "F24:F48", "'CHARACTERISTICS'!$A$1:$A$32")
     _add_list_validation(ws, "M24:M48", "'TOOLING'!$A$1:$A$10")
+    _add_list_validation(ws, "H24:I48", "'ATTRIBUTE'!$A$1:$A$2")
     return filled
 
 
@@ -253,7 +283,7 @@ def fill_fai_template(template_path: str | Path, characteristics: Iterable[Any],
     if output_path is None:
         drawing_name = "FAI"
         if characteristics:
-            metadata = getattr(characteristics[0], "metadata", {}) or {}
+            metadata = _characteristic_metadata(characteristics[0])
             drawing_name = metadata.get("drawing_name", drawing_name)
         suffix = ".xlsm" if template_path.suffix.lower() == ".xlsm" else ".xlsx"
         output_path = template_path.with_name(f"{drawing_name}_FAI{suffix}")
