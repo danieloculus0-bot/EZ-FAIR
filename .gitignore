@@ -1,0 +1,9 @@
+local_inputs/
+local_outputs/
+*.pdf
+*.xlsx
+*.xlsm
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
