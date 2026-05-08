@@ -9,7 +9,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
-from ez_fai_builder import (
+from extractor_engine import (
     Characteristic,
     add_pdf_balloons,
     extract_pdf_dimensions,
@@ -28,9 +28,6 @@ TEXT = "#edf4ff"
 MUTED = "#9fb2c8"
 ACCENT = "#0b3a75"
 ACCENT_2 = "#1f6fbc"
-GOOD = "#2bb673"
-WARN = "#f0b429"
-BAD = "#e55353"
 
 
 class EzFairApp(tk.Tk):
@@ -56,7 +53,7 @@ class EzFairApp(tk.Tk):
     def _apply_icon(self) -> None:
         candidates = [
             Path(__file__).resolve().parent / "assets" / "EZ-FAIR.ico",
-            Path(__file__).resolve().parents[1] / "bin" / "EZ-FAIR.ico",
+            Path(__file__).resolve().parent / "bin" / "EZ-FAIR.ico",
             Path(__file__).resolve().parent / "EZ-FAIR.ico",
         ]
         for candidate in candidates:
@@ -75,7 +72,6 @@ class EzFairApp(tk.Tk):
             pass
         style.configure("Root.TFrame", background=APP_BG)
         style.configure("Panel.TFrame", background=PANEL_BG)
-        style.configure("Card.TFrame", background=CARD_BG)
         style.configure("Title.TLabel", background=APP_BG, foreground=TEXT, font=("Segoe UI", 24, "bold"))
         style.configure("Subtitle.TLabel", background=APP_BG, foreground=MUTED, font=("Segoe UI", 10))
         style.configure("PanelTitle.TLabel", background=PANEL_BG, foreground=TEXT, font=("Segoe UI", 11, "bold"))
@@ -107,7 +103,6 @@ class EzFairApp(tk.Tk):
         setup.pack(fill=tk.X, pady=(10, 12))
         ttk.Label(setup, text="Job Setup", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
         setup.columnconfigure(1, weight=1)
-
         self._path_row(setup, 1, "PDF blueprint", self.pdf_path, self.pick_pdf)
         self._path_row(setup, 2, "FAI Excel template", self.template_path, self.pick_template)
         self._path_row(setup, 3, "Output folder", self.output_dir, self.pick_output_dir)
@@ -131,19 +126,8 @@ class EzFairApp(tk.Tk):
 
         columns = ("char", "page", "ref", "raw", "lsl", "nominal", "usl", "type", "tooling", "comments")
         self.tree = ttk.Treeview(table_panel, columns=columns, show="headings", selectmode="extended")
-        headings = {
-            "char": "#",
-            "page": "Pg",
-            "ref": "Location",
-            "raw": "Raw",
-            "lsl": "LSL",
-            "nominal": "Nominal",
-            "usl": "USL",
-            "type": "Type",
-            "tooling": "Tooling",
-            "comments": "Comments",
-        }
-        widths = {"char": 44, "page": 44, "ref": 92, "raw": 110, "lsl": 82, "nominal": 82, "usl": 82, "type": 82, "tooling": 120, "comments": 180}
+        headings = {"char": "#", "page": "Pg", "ref": "Location", "raw": "Raw", "lsl": "LSL", "nominal": "Nominal", "usl": "USL", "type": "Type", "tooling": "Tooling", "comments": "Comments"}
+        widths = {"char": 44, "page": 44, "ref": 92, "raw": 130, "lsl": 82, "nominal": 82, "usl": 82, "type": 82, "tooling": 120, "comments": 180}
         for col in columns:
             self.tree.heading(col, text=headings[col])
             self.tree.column(col, width=widths[col], minwidth=40, stretch=col in {"comments", "raw"})
@@ -172,8 +156,7 @@ class EzFairApp(tk.Tk):
 
     def _path_row(self, parent: ttk.Frame, row: int, label: str, variable: tk.StringVar, command) -> None:
         ttk.Label(parent, text=label, style="Body.TLabel").grid(row=row, column=0, sticky="w", pady=4, padx=(0, 10))
-        entry = ttk.Entry(parent, textvariable=variable)
-        entry.grid(row=row, column=1, sticky="ew", pady=4)
+        ttk.Entry(parent, textvariable=variable).grid(row=row, column=1, sticky="ew", pady=4)
         ttk.Button(parent, text="Browse", command=command).grid(row=row, column=2, sticky="e", pady=4, padx=(8, 0))
 
     def log(self, message: str) -> None:
@@ -188,9 +171,8 @@ class EzFairApp(tk.Tk):
         path = filedialog.askopenfilename(title="Select PDF blueprint", filetypes=[("PDF drawings", "*.pdf"), ("All files", "*.*")])
         if path:
             self.pdf_path.set(path)
-            default_output = str(Path(path).parent / "local_outputs")
             if not self.output_dir.get():
-                self.output_dir.set(default_output)
+                self.output_dir.set(str(Path(path).parent / "local_outputs"))
 
     def pick_template(self) -> None:
         path = filedialog.askopenfilename(title="Select FAI Excel template", filetypes=[("Excel templates", "*.xlsx *.xlsm"), ("All files", "*.*")])
@@ -247,25 +229,14 @@ class EzFairApp(tk.Tk):
         self.refresh_table()
         self.set_busy(False)
         if capacity and len(chars) > capacity:
-            self.log(f"Extracted {len(chars)} characteristics. R3 form holds {capacity}; only first {capacity} fit.")
+            self.log(f"Extracted {len(chars)} characteristics. This form has {capacity} visible rows; exporter will add preserved continuation rows.")
         else:
             self.log(f"Extracted {len(chars)} characteristics. Skipped {skipped} candidates.")
 
     def refresh_table(self) -> None:
         self.tree.delete(*self.tree.get_children())
         for char in self.characteristics:
-            self.tree.insert("", tk.END, iid=str(char.char_number), values=(
-                char.char_number,
-                char.page_index + 1,
-                char.reference_location,
-                char.raw_text,
-                char.lsl,
-                char.nominal,
-                char.usl,
-                char.type,
-                char.tooling,
-                char.comments,
-            ))
+            self.tree.insert("", tk.END, iid=str(char.char_number), values=(char.char_number, char.page_index + 1, char.reference_location, char.raw_text, char.lsl, char.nominal, char.usl, char.type, char.tooling, char.comments))
 
     def begin_cell_edit(self, event) -> None:
         editable = {"raw", "lsl", "nominal", "usl", "type", "tooling", "comments", "ref"}
@@ -298,8 +269,7 @@ class EzFairApp(tk.Tk):
             char = self.characteristics[index]
             try:
                 if col_name in {"lsl", "nominal", "usl"}:
-                    new_value = float(new_value)
-                    setattr(char, col_name, new_value)
+                    setattr(char, col_name, float(new_value))
                 elif col_name == "ref":
                     char.reference_location = str(new_value)
                 elif col_name == "raw":
@@ -380,8 +350,7 @@ class EzFairApp(tk.Tk):
         if not selection:
             return
         key = list(self.generated_outputs.keys())[selection[0]]
-        path = self.generated_outputs[key]
-        self._open_path(path)
+        self._open_path(self.generated_outputs[key])
 
     def open_output_folder(self) -> None:
         path = Path(self.output_dir.get() or Path.cwd())
@@ -404,8 +373,7 @@ class EzFairApp(tk.Tk):
 
 
 def main() -> None:
-    app = EzFairApp()
-    app.mainloop()
+    EzFairApp().mainloop()
 
 
 if __name__ == "__main__":
