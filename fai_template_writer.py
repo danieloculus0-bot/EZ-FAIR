@@ -6,12 +6,16 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from openpyxl import load_workbook
+from openpyxl.styles import Alignment
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.worksheet.properties import PageSetupProperties
 
 EXACT_R3_SHEET = "FAI FORM"
 R3_START_ROW = 24
 R3_END_ROW = 48
+R3_BODY_ROW_HEIGHT = 14.25
+R3_HEADER_ROW_HEIGHT = 15.0
 
 R3_COLUMNS = {
     "Char Number": 1,
@@ -68,17 +72,14 @@ LIST_SHEET_SPECS = {
     "ATTRIBUTE": ["PASS", "FAIL"],
 }
 
+# Exact R3 value cells. These are intentionally sparse.
+# Do not write to label cells like J6/J8/J10, and do not auto-fill admin fields
+# such as Date, Inspector, Item No, Order No, PO No, or Reason for FAI.
 R3_HEADER_METADATA_CELLS = {
     "part_no": "B6",
-    "part_name": "J6",
-    "drawing_no": "J8",
-    "revision": "J10",
-    "date": "B8",
-    "inspector": "B10",
-    "item_no": "B12",
-    "order_no": "B14",
-    "po_no": "J12",
-    "reason_for_fai": "J14",
+    "part_name": "K6",
+    "drawing_no": "K8",
+    "revision": "K10",
 }
 
 
@@ -188,6 +189,45 @@ def _fill_r3_header(ws, characteristics: list[Any]) -> None:
             ws[cell_ref].value = value
 
 
+def _apply_r3_editable_layout(ws) -> None:
+    """Make filled rows more editable while preserving one-page Letter printing."""
+    if ws.sheet_properties.pageSetUpPr is None:
+        ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+    else:
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+
+    ws.print_area = "A1:N48"
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.paperSize = ws.PAPERSIZE_LETTER
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 1
+    ws.page_setup.scale = None
+    ws.page_margins.left = 0.25
+    ws.page_margins.right = 0.25
+    ws.page_margins.top = 0.25
+    ws.page_margins.bottom = 0.25
+    ws.page_margins.header = 0.1
+    ws.page_margins.footer = 0.1
+    ws.sheet_view.view = "pageBreakPreview"
+
+    for row in range(22, 24):
+        ws.row_dimensions[row].height = R3_HEADER_ROW_HEIGHT
+    for row in range(R3_START_ROW, R3_END_ROW + 1):
+        ws.row_dimensions[row].height = R3_BODY_ROW_HEIGHT
+        for col in range(1, 15):
+            cell = ws.cell(row=row, column=col)
+            existing = cell.alignment or Alignment()
+            cell.alignment = copy.copy(existing)
+            cell.alignment = Alignment(
+                horizontal=existing.horizontal or "center",
+                vertical="center",
+                text_rotation=existing.textRotation,
+                wrap_text=True,
+                shrink_to_fit=False,
+                indent=existing.indent,
+            )
+
+
 def _fill_r3_form(ws, characteristics: list[Any]) -> int:
     _fill_r3_header(ws, characteristics)
     _reset_r3_rows(ws, R3_START_ROW, R3_END_ROW)
@@ -205,10 +245,10 @@ def _fill_r3_form(ws, characteristics: list[Any]) -> int:
         ws.cell(row=row, column=R3_COLUMNS["In Spec"]).value = _r3_inclusive_formula(row)
         ws.cell(row=row, column=R3_COLUMNS["Tooling Used"]).value = values["Tooling Used"]
         ws.cell(row=row, column=R3_COLUMNS["Comments"]).value = values["Comments"]
-    ws["K16"].value = '=IF(COUNTA(J24:J48)=0,"",IF(SUMPRODUCT(--(J24:J48<>""),--(K24:K48<>"X"))>0,"FAIL","PASS"))'
     _add_list_validation(ws, "F24:F48", "'CHARACTERISTICS'!$A$1:$A$32")
     _add_list_validation(ws, "M24:M48", "'TOOLING'!$A$1:$A$10")
     _add_list_validation(ws, "H24:I48", "'ATTRIBUTE'!$A$1:$A$2")
+    _apply_r3_editable_layout(ws)
     return filled
 
 
