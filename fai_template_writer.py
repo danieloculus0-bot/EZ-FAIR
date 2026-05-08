@@ -13,7 +13,8 @@ from openpyxl.worksheet.properties import PageSetupProperties
 
 EXACT_R3_SHEET = "FAI FORM"
 R3_START_ROW = 24
-R3_END_ROW = 48
+R3_TEMPLATE_END_ROW = 48
+R3_TEMPLATE_CAPACITY = R3_TEMPLATE_END_ROW - R3_START_ROW + 1
 R3_BODY_ROW_HEIGHT = 14.25
 R3_HEADER_ROW_HEIGHT = 15.0
 
@@ -168,6 +169,24 @@ def _r3_inclusive_formula(row: int) -> str:
     return f'=IF(J{row}="","",IF(AND(J{row}>=C{row},J{row}<=E{row}),"X",""))'
 
 
+def _required_r3_end_row(characteristic_count: int) -> int:
+    return max(R3_TEMPLATE_END_ROW, R3_START_ROW + max(characteristic_count, 1) - 1)
+
+
+def _ensure_r3_row_capacity(ws, characteristic_count: int) -> int:
+    """Extend the exact R3 form past its original 25 rows without squeezing print size."""
+    required_end_row = _required_r3_end_row(characteristic_count)
+    if required_end_row <= R3_TEMPLATE_END_ROW:
+        return R3_TEMPLATE_END_ROW
+
+    extra_rows = required_end_row - R3_TEMPLATE_END_ROW
+    insert_at = R3_TEMPLATE_END_ROW + 1
+    ws.insert_rows(insert_at, amount=extra_rows)
+    for row in range(insert_at, required_end_row + 1):
+        _copy_row_style(ws, R3_TEMPLATE_END_ROW, row)
+    return required_end_row
+
+
 def _reset_r3_rows(ws, start_row: int, end_row: int) -> None:
     for row in range(start_row, end_row + 1):
         ws.cell(row=row, column=R3_COLUMNS["Char Number"]).value = row - start_row + 1
@@ -189,18 +208,20 @@ def _fill_r3_header(ws, characteristics: list[Any]) -> None:
             ws[cell_ref].value = value
 
 
-def _apply_r3_editable_layout(ws) -> None:
-    """Make filled rows more editable while preserving one-page Letter printing."""
+def _apply_r3_editable_layout(ws, end_row: int) -> None:
+    """Keep the form readable and printable when row count grows beyond 25."""
     if ws.sheet_properties.pageSetUpPr is None:
         ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
     else:
         ws.sheet_properties.pageSetUpPr.fitToPage = True
 
-    ws.print_area = "A1:N48"
+    ws.print_area = f"A1:N{end_row}"
+    ws.print_title_rows = "1:23"
+    ws.freeze_panes = "A24"
     ws.page_setup.orientation = "landscape"
     ws.page_setup.paperSize = ws.PAPERSIZE_LETTER
     ws.page_setup.fitToWidth = 1
-    ws.page_setup.fitToHeight = 1
+    ws.page_setup.fitToHeight = 1 if end_row <= R3_TEMPLATE_END_ROW else 0
     ws.page_setup.scale = None
     ws.page_margins.left = 0.25
     ws.page_margins.right = 0.25
@@ -212,12 +233,11 @@ def _apply_r3_editable_layout(ws) -> None:
 
     for row in range(22, 24):
         ws.row_dimensions[row].height = R3_HEADER_ROW_HEIGHT
-    for row in range(R3_START_ROW, R3_END_ROW + 1):
+    for row in range(R3_START_ROW, end_row + 1):
         ws.row_dimensions[row].height = R3_BODY_ROW_HEIGHT
         for col in range(1, 15):
             cell = ws.cell(row=row, column=col)
             existing = cell.alignment or Alignment()
-            cell.alignment = copy.copy(existing)
             cell.alignment = Alignment(
                 horizontal=existing.horizontal or "center",
                 vertical="center",
@@ -230,9 +250,9 @@ def _apply_r3_editable_layout(ws) -> None:
 
 def _fill_r3_form(ws, characteristics: list[Any]) -> int:
     _fill_r3_header(ws, characteristics)
-    _reset_r3_rows(ws, R3_START_ROW, R3_END_ROW)
-    filled = min(len(characteristics), R3_END_ROW - R3_START_ROW + 1)
-    for offset, characteristic in enumerate(characteristics[:filled]):
+    end_row = _ensure_r3_row_capacity(ws, len(characteristics))
+    _reset_r3_rows(ws, R3_START_ROW, end_row)
+    for offset, characteristic in enumerate(characteristics):
         row = R3_START_ROW + offset
         values = _row_values(characteristic)
         ws.cell(row=row, column=R3_COLUMNS["Char Number"]).value = offset + 1
@@ -245,11 +265,11 @@ def _fill_r3_form(ws, characteristics: list[Any]) -> int:
         ws.cell(row=row, column=R3_COLUMNS["In Spec"]).value = _r3_inclusive_formula(row)
         ws.cell(row=row, column=R3_COLUMNS["Tooling Used"]).value = values["Tooling Used"]
         ws.cell(row=row, column=R3_COLUMNS["Comments"]).value = values["Comments"]
-    _add_list_validation(ws, "F24:F48", "'CHARACTERISTICS'!$A$1:$A$32")
-    _add_list_validation(ws, "M24:M48", "'TOOLING'!$A$1:$A$10")
-    _add_list_validation(ws, "H24:I48", "'ATTRIBUTE'!$A$1:$A$2")
-    _apply_r3_editable_layout(ws)
-    return filled
+    _add_list_validation(ws, f"F{R3_START_ROW}:F{end_row}", "'CHARACTERISTICS'!$A$1:$A$32")
+    _add_list_validation(ws, f"M{R3_START_ROW}:M{end_row}", "'TOOLING'!$A$1:$A$10")
+    _add_list_validation(ws, f"H{R3_START_ROW}:I{end_row}", "'ATTRIBUTE'!$A$1:$A$2")
+    _apply_r3_editable_layout(ws, end_row)
+    return len(characteristics)
 
 
 def _header_targets() -> dict[str, str]:
@@ -310,9 +330,10 @@ def _fill_generic(ws, characteristics: list[Any]) -> int:
 
 
 def template_row_capacity(template_path: str | Path) -> int | None:
+    """Return None for expandable R3 forms; generic callers should not truncate them."""
     wb = load_workbook(template_path, read_only=True, data_only=False)
     ws = wb[EXACT_R3_SHEET] if EXACT_R3_SHEET in wb.sheetnames else wb.active
-    capacity = R3_END_ROW - R3_START_ROW + 1 if _is_r3_form(ws) else None
+    capacity = None if _is_r3_form(ws) else None
     wb.close()
     return capacity
 
