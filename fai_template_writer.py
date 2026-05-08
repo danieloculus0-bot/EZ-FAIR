@@ -204,7 +204,7 @@ def _apply_r3_editable_layout(ws, end_row: int) -> None:
     ws.page_setup.orientation = "landscape"
     ws.page_setup.paperSize = ws.PAPERSIZE_LETTER
     ws.page_setup.fitToWidth = 1
-    ws.page_setup.fitToHeight = 1 if end_row <= R3_TEMPLATE_END_ROW else 0
+    ws.page_setup.fitToHeight = 0
     ws.page_setup.scale = None
     ws.page_margins.left = 0.25
     ws.page_margins.right = 0.25
@@ -212,7 +212,8 @@ def _apply_r3_editable_layout(ws, end_row: int) -> None:
     ws.page_margins.bottom = 0.25
     ws.page_margins.header = 0.1
     ws.page_margins.footer = 0.1
-    ws.sheet_view.view = "pageBreakPreview"
+    ws.sheet_view.view = "normal"
+    ws.sheet_view.showGridLines = False
     for row in range(22, 24):
         ws.row_dimensions[row].height = R3_HEADER_ROW_HEIGHT
     for row in range(R3_START_ROW, end_row + 1):
@@ -305,7 +306,7 @@ def _fill_generic(ws, characteristics: list[Any]) -> int:
 def template_row_capacity(template_path: str | Path) -> int | None:
     wb = load_workbook(template_path, read_only=True, data_only=False)
     ws = wb[EXACT_R3_SHEET] if EXACT_R3_SHEET in wb.sheetnames else wb.active
-    capacity = None if _is_r3_form(ws) else None
+    capacity = None
     wb.close()
     return capacity
 
