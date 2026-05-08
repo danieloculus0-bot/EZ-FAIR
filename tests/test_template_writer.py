@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-import zipfile
 
 from openpyxl import Workbook, load_workbook
 
@@ -26,10 +25,22 @@ def make_r3_like_template(path: Path) -> None:
     ws = wb.active
     ws.title = "FAI FORM"
     ws["A3"] = "FIRST ARTICLE INSPECTION (FAI)"
+    ws["A6"] = "Part No:"
+    ws["J6"] = "Part Name:"
+    ws["A8"] = "Date:"
+    ws["J8"] = "Drawing No:"
+    ws["A10"] = "Insp. by:"
+    ws["J10"] = "Revision:"
+    ws["A12"] = "Item No:"
+    ws["J12"] = "PO No:"
+    ws["A14"] = "Order No:"
+    ws["J14"] = "Reason for FAI:"
     ws["A22"] = "CHAR"
     ws["C22"] = "REQUIREMENT"
     ws["G22"] = "SUPPLIER INSPECTION RESULT"
     ws["J22"] = "EZ FABRICATING INSPECTION RESULT"
+    for merge_ref in ["B6:E6", "K6:N6", "B8:E8", "K8:N8", "B10:E10", "K10:N10", "B12:E12", "K12:N12", "B14:E14", "K14:N14"]:
+        ws.merge_cells(merge_ref)
     for row in range(24, 49):
         ws.cell(row=row, column=1).value = row - 23
         ws.cell(row=row, column=11).value = f'=IF(J{row}="","",IF(AND(J{row}>=C{row},J{row}<=E{row}),"X",""))'
@@ -64,10 +75,14 @@ def test_r3_template_writer_preserves_form_and_inclusive_formula(tmp_path):
     assert "<=E24" in ws["K24"].value
     assert ws["M24"].value == "CALIPER"
     assert ws["N24"].value == "AFTER GALVANIZE"
+    assert ws.row_dimensions[24].height >= 14
+    assert ws.print_area == "'FAI FORM'!$A$1:$N$48"
+    assert ws.page_setup.fitToWidth == 1
+    assert ws.page_setup.fitToHeight == 1
     assert len(ws.data_validations.dataValidation) >= 3
 
 
-def test_r3_template_writer_fills_optional_header_metadata(tmp_path):
+def test_r3_template_writer_fills_only_non_admin_header_metadata(tmp_path):
     template = tmp_path / "EZ_FAB_1st_Article_Form_R3.xlsx"
     output = tmp_path / "filled.xlsx"
     make_r3_like_template(template)
@@ -86,6 +101,12 @@ def test_r3_template_writer_fills_optional_header_metadata(tmp_path):
                 "part_name": "LOUVER INTAKE REAR SIDE CAP",
                 "drawing_no": "V9050SP-104B-01",
                 "revision": "A",
+                "date": "SHOULD NOT WRITE",
+                "inspector": "SHOULD NOT WRITE",
+                "item_no": "SHOULD NOT WRITE",
+                "order_no": "SHOULD NOT WRITE",
+                "po_no": "SHOULD NOT WRITE",
+                "reason_for_fai": "SHOULD NOT WRITE",
             },
         )
     ]
@@ -94,9 +115,15 @@ def test_r3_template_writer_fills_optional_header_metadata(tmp_path):
     wb = load_workbook(output, data_only=False)
     ws = wb["FAI FORM"]
     assert ws["B6"].value == "V9050SP-104B-01"
-    assert ws["J6"].value == "LOUVER INTAKE REAR SIDE CAP"
-    assert ws["J8"].value == "V9050SP-104B-01"
-    assert ws["J10"].value == "A"
+    assert ws["K6"].value == "LOUVER INTAKE REAR SIDE CAP"
+    assert ws["K8"].value == "V9050SP-104B-01"
+    assert ws["K10"].value == "A"
+    assert ws["B8"].value is None
+    assert ws["B10"].value is None
+    assert ws["B12"].value is None
+    assert ws["B14"].value is None
+    assert ws["K12"].value is None
+    assert ws["K14"].value is None
 
 
 def test_generic_template_still_works(tmp_path):
