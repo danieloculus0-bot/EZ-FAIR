@@ -9,13 +9,22 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
-from extractor_engine import (
-    Characteristic,
-    add_pdf_balloons,
-    extract_pdf_dimensions,
-    get_last_skipped_candidates,
-    write_debug_report,
-)
+try:
+    from extractor_precision_patch import (
+        Characteristic,
+        add_pdf_balloons,
+        extract_pdf_dimensions,
+        get_last_skipped_candidates,
+        write_debug_report,
+    )
+except Exception:
+    from extractor_engine import (
+        Characteristic,
+        add_pdf_balloons,
+        extract_pdf_dimensions,
+        get_last_skipped_candidates,
+        write_debug_report,
+    )
 from fai_template_writer import fill_fai_template, template_row_capacity
 from local_test_runner import write_extraction_summary
 
@@ -229,7 +238,7 @@ class EzFairApp(tk.Tk):
         self.refresh_table()
         self.set_busy(False)
         if capacity and len(chars) > capacity:
-            self.log(f"Extracted {len(chars)} characteristics. This form has {capacity} visible rows; exporter will add preserved continuation rows.")
+            self.log(f"Extracted {len(chars)} characteristics. Exporter will add continuation rows as needed.")
         else:
             self.log(f"Extracted {len(chars)} characteristics. Skipped {skipped} candidates.")
 
