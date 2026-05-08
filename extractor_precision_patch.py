@@ -33,8 +33,8 @@ def classify_dimension(text: str, context: str = "") -> str:
     blob = f"{text or ''} {context or ''}"
     if "°" in blob or "º" in blob or re.search(r"\bdeg\.?\b", blob, re.I):
         return "°"
-    if "Ø" in text or "⌀" in text or re.search(r"\b(?:DIA|DIAMETER)\b", blob, re.I):
-        return "Ø"
+    if "Ø" in blob or "⌀" in blob or re.search(r"\b(?:DIA|DIAMETER)\b", blob, re.I):
+        return "DIAMETER"
     if re.match(r"\s*[Rr]\s*\.?\d", text or "") or re.search(r"\b(?:RADIUS|RAD)\b", blob, re.I):
         return "RADIUS"
     if base.WELD_PATTERN.search(blob):
@@ -87,11 +87,11 @@ def _add(chars: list[Characteristic], skipped: list[SkippedCandidate], page: fit
     if reason and "title block" not in reason:
         base._record_skip(skipped, page_i, raw, reason, rect, near)
         return
-    typ = classify_dimension(raw, line)
+    typ = classify_dimension(raw, f"{line} {near}")
     if _duplicate(chars, page_i, typ, nominal, rect, line):
         base._record_skip(skipped, page_i, raw, "duplicate candidate at same location", rect, near)
         return
-    lsl, usl = base.calculate_tolerance_limits(nominal, value, typ, line)
+    lsl, usl = base.calculate_tolerance_limits(nominal, value, typ, f"{line} {near}")
     m = dict(meta)
     m.update({"source": line, "nearby": near})
     chars.append(Characteristic(len(chars) + 1, base._reference_location(page, rect, page_i), nominal, lsl, usl, typ, page_i, (rect.x0, rect.y0, rect.x1, rect.y1), raw, base.DEFAULT_TOOLING.get(typ, "CALIPER"), comment, "", m))
