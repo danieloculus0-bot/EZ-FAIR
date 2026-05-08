@@ -15,7 +15,7 @@ EXACT_R3_SHEET = "FAI FORM"
 R3_START_ROW = 24
 R3_TEMPLATE_END_ROW = 48
 R3_TEMPLATE_CAPACITY = R3_TEMPLATE_END_ROW - R3_START_ROW + 1
-R3_BODY_ROW_HEIGHT = 14.25
+R3_BODY_ROW_HEIGHT = 17.0
 R3_HEADER_ROW_HEIGHT = 15.0
 
 R3_COLUMNS = {
@@ -35,16 +35,8 @@ R3_COLUMNS = {
 }
 
 GENERIC_HEADERS = [
-    "Char Number",
-    "Reference Location",
-    "Requirement LSL",
-    "Requirement Nominal",
-    "Requirement USL",
-    "Type",
-    "EZ Fabricating Actual",
-    "In Spec",
-    "Tooling Used",
-    "Comments",
+    "Char Number", "Reference Location", "Requirement LSL", "Requirement Nominal", "Requirement USL",
+    "Type", "EZ Fabricating Actual", "In Spec", "Tooling Used", "Comments",
 ]
 
 HEADER_ALIASES = {
@@ -66,16 +58,10 @@ LIST_SHEET_SPECS = {
         "∩", "⌓", "∠", "⊥", "//", "⌖", "◎", "⌯", "⌰", "Ⓕ", "Ⓛ", "°", "±", "Ø",
         "↧", "≥", "≤", "⌴", "⌵", "µ", "✓", "℄",
     ],
-    "TOOLING": [
-        "VISUAL", "CALIPER", "CERTIFICATION", "TAPE ", "PROTRACTOR", "ANGLE GAGE", "THREAD GAGE",
-        "HARDWARE", "FITMENT/NHA", "MICROMETER",
-    ],
+    "TOOLING": ["VISUAL", "CALIPER", "CERTIFICATION", "TAPE ", "PROTRACTOR", "ANGLE GAGE", "THREAD GAGE", "HARDWARE", "FITMENT/NHA", "MICROMETER"],
     "ATTRIBUTE": ["PASS", "FAIL"],
 }
 
-# Exact R3 value cells. These are intentionally sparse.
-# Do not write to label cells like J6/J8/J10, and do not auto-fill admin fields
-# such as Date, Inspector, Item No, Order No, PO No, or Reason for FAI.
 R3_HEADER_METADATA_CELLS = {
     "part_no": "B6",
     "part_name": "K6",
@@ -112,19 +98,11 @@ def _row_values(characteristic: Any) -> dict[str, Any]:
 
 
 def _pick_sheet(wb):
-    if EXACT_R3_SHEET in wb.sheetnames:
-        return wb[EXACT_R3_SHEET]
-    return wb.active
+    return wb[EXACT_R3_SHEET] if EXACT_R3_SHEET in wb.sheetnames else wb.active
 
 
 def _is_r3_form(ws) -> bool:
-    markers = [
-        str(ws["A3"].value or "").upper(),
-        str(ws["A22"].value or "").upper(),
-        str(ws["C22"].value or "").upper(),
-        str(ws["G22"].value or "").upper(),
-        str(ws["J22"].value or "").upper(),
-    ]
+    markers = [str(ws[cell].value or "").upper() for cell in ("A3", "A22", "C22", "G22", "J22")]
     joined = " ".join(markers)
     return "FIRST ARTICLE" in joined and "CHAR" in joined and "REQUIREMENT" in joined and "INSPECTION RESULT" in joined
 
@@ -145,7 +123,18 @@ def _copy_row_style(ws, source_row: int, target_row: int) -> None:
             dst.fill = copy.copy(src.fill)
         if src.font:
             dst.font = copy.copy(src.font)
-    ws.row_dimensions[target_row].height = ws.row_dimensions[source_row].height
+    ws.row_dimensions[target_row].height = ws.row_dimensions[source_row].height or R3_BODY_ROW_HEIGHT
+
+
+def _copy_merged_ranges_for_row(ws, source_row: int, target_row: int) -> None:
+    existing = {str(rng) for rng in ws.merged_cells.ranges}
+    for merged in list(ws.merged_cells.ranges):
+        if merged.min_row == source_row and merged.max_row == source_row:
+            row_delta = target_row - source_row
+            ref = f"{get_column_letter(merged.min_col)}{merged.min_row + row_delta}:{get_column_letter(merged.max_col)}{merged.max_row + row_delta}"
+            if ref not in existing:
+                ws.merge_cells(ref)
+                existing.add(ref)
 
 
 def _ensure_list_sheets(wb) -> None:
@@ -174,26 +163,22 @@ def _required_r3_end_row(characteristic_count: int) -> int:
 
 
 def _ensure_r3_row_capacity(ws, characteristic_count: int) -> int:
-    """Extend the exact R3 form past its original 25 rows without squeezing print size."""
     required_end_row = _required_r3_end_row(characteristic_count)
     if required_end_row <= R3_TEMPLATE_END_ROW:
         return R3_TEMPLATE_END_ROW
-
     extra_rows = required_end_row - R3_TEMPLATE_END_ROW
     insert_at = R3_TEMPLATE_END_ROW + 1
     ws.insert_rows(insert_at, amount=extra_rows)
     for row in range(insert_at, required_end_row + 1):
         _copy_row_style(ws, R3_TEMPLATE_END_ROW, row)
+        _copy_merged_ranges_for_row(ws, R3_TEMPLATE_END_ROW, row)
     return required_end_row
 
 
 def _reset_r3_rows(ws, start_row: int, end_row: int) -> None:
     for row in range(start_row, end_row + 1):
         ws.cell(row=row, column=R3_COLUMNS["Char Number"]).value = row - start_row + 1
-        for header in [
-            "Reference Location", "Requirement LSL", "Requirement Nominal", "Requirement USL", "Type",
-            "Supplier Actual", "Supplier Yes", "Supplier No", "EZ Fabricating Actual", "Tooling Used", "Comments",
-        ]:
+        for header in ["Reference Location", "Requirement LSL", "Requirement Nominal", "Requirement USL", "Type", "Supplier Actual", "Supplier Yes", "Supplier No", "EZ Fabricating Actual", "Tooling Used", "Comments"]:
             ws.cell(row=row, column=R3_COLUMNS[header]).value = None
         ws.cell(row=row, column=R3_COLUMNS["In Spec"]).value = _r3_inclusive_formula(row)
 
@@ -209,12 +194,10 @@ def _fill_r3_header(ws, characteristics: list[Any]) -> None:
 
 
 def _apply_r3_editable_layout(ws, end_row: int) -> None:
-    """Keep the form readable and printable when row count grows beyond 25."""
     if ws.sheet_properties.pageSetUpPr is None:
         ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
     else:
         ws.sheet_properties.pageSetUpPr.fitToPage = True
-
     ws.print_area = f"A1:N{end_row}"
     ws.print_title_rows = "1:23"
     ws.freeze_panes = "A24"
@@ -230,7 +213,6 @@ def _apply_r3_editable_layout(ws, end_row: int) -> None:
     ws.page_margins.header = 0.1
     ws.page_margins.footer = 0.1
     ws.sheet_view.view = "pageBreakPreview"
-
     for row in range(22, 24):
         ws.row_dimensions[row].height = R3_HEADER_ROW_HEIGHT
     for row in range(R3_START_ROW, end_row + 1):
@@ -238,14 +220,7 @@ def _apply_r3_editable_layout(ws, end_row: int) -> None:
         for col in range(1, 15):
             cell = ws.cell(row=row, column=col)
             existing = cell.alignment or Alignment()
-            cell.alignment = Alignment(
-                horizontal=existing.horizontal or "center",
-                vertical="center",
-                text_rotation=existing.textRotation,
-                wrap_text=True,
-                shrink_to_fit=False,
-                indent=existing.indent,
-            )
+            cell.alignment = Alignment(horizontal=existing.horizontal or "center", vertical="center", text_rotation=existing.textRotation, wrap_text=True, shrink_to_fit=False, indent=existing.indent)
 
 
 def _fill_r3_form(ws, characteristics: list[Any]) -> int:
@@ -323,14 +298,11 @@ def _fill_generic(ws, characteristics: list[Any]) -> int:
         lsl_col = get_column_letter(columns["Requirement LSL"])
         usl_col = get_column_letter(columns["Requirement USL"])
         in_spec_col = columns["In Spec"]
-        ws.cell(row=row, column=in_spec_col).value = (
-            f'=IF({actual_col}{row}="","",IF(AND({actual_col}{row}>={lsl_col}{row},{actual_col}{row}<={usl_col}{row}),"X",""))'
-        )
+        ws.cell(row=row, column=in_spec_col).value = f'=IF({actual_col}{row}="","",IF(AND({actual_col}{row}>={lsl_col}{row},{actual_col}{row}<={usl_col}{row}),"X",""))'
     return len(characteristics)
 
 
 def template_row_capacity(template_path: str | Path) -> int | None:
-    """Return None for expandable R3 forms; generic callers should not truncate them."""
     wb = load_workbook(template_path, read_only=True, data_only=False)
     ws = wb[EXACT_R3_SHEET] if EXACT_R3_SHEET in wb.sheetnames else wb.active
     capacity = None if _is_r3_form(ws) else None
@@ -351,7 +323,6 @@ def fill_fai_template(template_path: str | Path, characteristics: Iterable[Any],
     output_path = Path(output_path)
     if output_path.resolve() == template_path.resolve():
         raise ValueError("FAI Excel output cannot overwrite the original template.")
-
     keep_vba = template_path.suffix.lower() == ".xlsm"
     wb = load_workbook(template_path, keep_vba=keep_vba)
     _ensure_list_sheets(wb)
