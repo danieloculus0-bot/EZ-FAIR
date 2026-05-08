@@ -54,19 +54,12 @@ HEADER_ALIASES = {
 
 LIST_SHEET_SPECS = {
     "CHARACTERISTICS": [
-        "NOTE", "TOLERANCE", "FINISH", "WELD", "MATERIAL", "RADIUS", "LINEAR", "▱", "◯", "⌭",
-        "∩", "⌓", "∠", "⊥", "//", "⌖", "◎", "⌯", "⌰", "Ⓕ", "Ⓛ", "°", "±", "Ø",
+        "NOTE", "TOLERANCE", "FINISH", "WELD", "MATERIAL", "RADIUS", "LINEAR", "DIAMETER", "Ø", "▱", "◯", "⌭",
+        "∩", "⌓", "∠", "⊥", "//", "⌖", "◎", "⌯", "⌰", "Ⓕ", "Ⓛ", "°", "±",
         "↧", "≥", "≤", "⌴", "⌵", "µ", "✓", "℄",
     ],
     "TOOLING": ["VISUAL", "CALIPER", "CERTIFICATION", "TAPE ", "PROTRACTOR", "ANGLE GAGE", "THREAD GAGE", "HARDWARE", "FITMENT/NHA", "MICROMETER"],
     "ATTRIBUTE": ["PASS", "FAIL"],
-}
-
-R3_HEADER_METADATA_CELLS = {
-    "part_no": "B6",
-    "part_name": "K6",
-    "drawing_no": "K8",
-    "revision": "K10",
 }
 
 
@@ -183,16 +176,6 @@ def _reset_r3_rows(ws, start_row: int, end_row: int) -> None:
         ws.cell(row=row, column=R3_COLUMNS["In Spec"]).value = _r3_inclusive_formula(row)
 
 
-def _fill_r3_header(ws, characteristics: list[Any]) -> None:
-    if not characteristics:
-        return
-    metadata = _characteristic_metadata(characteristics[0])
-    for key, cell_ref in R3_HEADER_METADATA_CELLS.items():
-        value = metadata.get(key)
-        if value not in (None, ""):
-            ws[cell_ref].value = value
-
-
 def _apply_r3_editable_layout(ws, end_row: int) -> None:
     if ws.sheet_properties.pageSetUpPr is None:
         ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
@@ -225,7 +208,6 @@ def _apply_r3_editable_layout(ws, end_row: int) -> None:
 
 
 def _fill_r3_form(ws, characteristics: list[Any]) -> int:
-    _fill_r3_header(ws, characteristics)
     end_row = _ensure_r3_row_capacity(ws, len(characteristics))
     _reset_r3_rows(ws, R3_START_ROW, end_row)
     for offset, characteristic in enumerate(characteristics):
@@ -241,7 +223,7 @@ def _fill_r3_form(ws, characteristics: list[Any]) -> int:
         ws.cell(row=row, column=R3_COLUMNS["In Spec"]).value = _r3_inclusive_formula(row)
         ws.cell(row=row, column=R3_COLUMNS["Tooling Used"]).value = values["Tooling Used"]
         ws.cell(row=row, column=R3_COLUMNS["Comments"]).value = values["Comments"]
-    _add_list_validation(ws, f"F{R3_START_ROW}:F{end_row}", "'CHARACTERISTICS'!$A$1:$A$32")
+    _add_list_validation(ws, f"F{R3_START_ROW}:F{end_row}", "'CHARACTERISTICS'!$A$1:$A$33")
     _add_list_validation(ws, f"M{R3_START_ROW}:M{end_row}", "'TOOLING'!$A$1:$A$10")
     _add_list_validation(ws, f"H{R3_START_ROW}:I{end_row}", "'ATTRIBUTE'!$A$1:$A$2")
     _apply_r3_editable_layout(ws, end_row)
@@ -305,10 +287,8 @@ def _fill_generic(ws, characteristics: list[Any]) -> int:
 
 def template_row_capacity(template_path: str | Path) -> int | None:
     wb = load_workbook(template_path, read_only=True, data_only=False)
-    ws = wb[EXACT_R3_SHEET] if EXACT_R3_SHEET in wb.sheetnames else wb.active
-    capacity = None
     wb.close()
-    return capacity
+    return None
 
 
 def fill_fai_template(template_path: str | Path, characteristics: Iterable[Any], output_path: str | Path | None = None) -> Path:
