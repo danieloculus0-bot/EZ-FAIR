@@ -1,9 +1,4 @@
-"""Local-only real drawing test runner for EZ FAI Builder.
-
-This helper is intentionally filesystem-only: it reads a PDF drawing and Excel
-FAI template from local disk and writes generated artifacts to a local output
-folder. It does not use cloud services, pandas, or a database.
-"""
+"""Local-only real drawing test runner for EZ-FAIR."""
 from __future__ import annotations
 
 import argparse
@@ -11,7 +6,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Iterable
 
-from ez_fai_builder import (
+from extractor_engine import (
     Characteristic,
     SkippedCandidate,
     TITLE_BLOCK_DEFAULTS,
@@ -30,10 +25,7 @@ DEBUG_REPORT_FILENAME = "EZ_FAI_DEBUG_REPORT.txt"
 
 
 def _has_explicit_tolerance(characteristic: Characteristic) -> bool:
-    context = " ".join(
-        str(characteristic.metadata.get(key, ""))
-        for key in ("source", "nearby")
-    )
+    context = " ".join(str(characteristic.metadata.get(key, "")) for key in ("source", "nearby"))
     return bool(TOLERANCE_PATTERN.search(context))
 
 
@@ -41,13 +33,10 @@ def _likely_false_positives(characteristics: Iterable[Characteristic]) -> list[C
     flagged: list[Characteristic] = []
     noise_words = ("DATE", "DWG", "DRAWING", "REV", "SHEET", "PAGE", "PHONE", "FAX", "SCALE")
     for characteristic in characteristics:
-        context = " ".join(
-            str(characteristic.metadata.get(key, ""))
-            for key in ("source", "nearby")
-        ).upper()
+        context = " ".join(str(characteristic.metadata.get(key, "")) for key in ("source", "nearby")).upper()
         if any(word in context for word in noise_words):
             flagged.append(characteristic)
-        elif characteristic.type == "LINEAR" and abs(characteristic.nominal) > 100:
+        elif characteristic.type == "LINEAR" and abs(characteristic.nominal) > 500:
             flagged.append(characteristic)
     return flagged
 
@@ -70,7 +59,6 @@ def write_extraction_summary(
     skipped_candidates: list[SkippedCandidate] | None = None,
     template_capacity: int | None = None,
 ) -> Path:
-    """Write a concise extraction and skipped-candidate summary."""
     output_path = Path(output_path)
     skipped_candidates = skipped_candidates if skipped_candidates is not None else get_last_skipped_candidates()
     type_counts = Counter(characteristic.type for characteristic in characteristics)
@@ -80,15 +68,11 @@ def write_extraction_summary(
     likely_duplicates = _likely_duplicates(characteristics)
     skipped_by_reason = Counter(skipped.reason for skipped in skipped_candidates)
 
-    lines = [
-        "EZ FAI Extraction Summary",
-        "=========================",
-        f"Total extracted characteristics: {len(characteristics)}",
-    ]
+    lines = ["EZ FAI Extraction Summary", "=========================", f"Total extracted characteristics: {len(characteristics)}"]
     if template_capacity is not None:
-        lines.append(f"Template row capacity: {template_capacity}")
+        lines.append(f"Template visible row capacity: {template_capacity}")
         if len(characteristics) > template_capacity:
-            lines.append(f"WARNING: Only the first {template_capacity} characteristics fit on this exact form. Extra characteristics need a continuation sheet or manual handling.")
+            lines.append(f"NOTE: The exporter will add continuation rows after the visible template area so all {len(characteristics)} characteristics are written.")
     lines.extend([
         "",
         "Count by type:",
@@ -113,35 +97,28 @@ def write_extraction_summary(
             lines.append("  (none)")
             return
         for item in items:
-            lines.append(
-                f"  Char {item.char_number}: {item.raw_text} | type={item.type} | "
-                f"nominal={item.nominal} | LSL={item.lsl} | USL={item.usl} | {item.reference_location}"
-            )
+            lines.append(f"  Char {item.char_number}: {item.raw_text} | type={item.type} | nominal={item.nominal} | LSL={item.lsl} | USL={item.usl} | {item.reference_location}")
 
     add_characteristic_list("Likely false positives", likely_false_positives)
     add_characteristic_list("Likely duplicate dimensions", likely_duplicates)
     add_characteristic_list("Dimensions with missing or guessed tolerance", guessed_tolerance)
     add_characteristic_list("Dimensions with explicit tolerance", explicit_tolerance)
-
-    lines.extend(
-        [
-            "",
-            "Title block tolerance defaults used:",
-            f"  two place decimal: ±{TITLE_BLOCK_DEFAULTS['two_place']}",
-            f"  three place decimal: ±{TITLE_BLOCK_DEFAULTS['three_place']}",
-            f"  angular: ±{TITLE_BLOCK_DEFAULTS['angular']}",
-            "",
-            "Review note: guessed tolerances, likely false positives, and likely duplicates should be checked before using the FAI.",
-        ]
-    )
-
+    lines.extend([
+        "",
+        "Title block tolerance defaults used:",
+        f"  whole number: ±{TITLE_BLOCK_DEFAULTS['whole_number']}",
+        f"  two place decimal: ±{TITLE_BLOCK_DEFAULTS['two_place']}",
+        f"  three place decimal: ±{TITLE_BLOCK_DEFAULTS['three_place']}",
+        f"  angular: ±{TITLE_BLOCK_DEFAULTS['angular']}",
+        "",
+        "Review note: guessed tolerances, likely false positives, and likely duplicates should be checked before using the FAI.",
+    ])
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return output_path
 
 
 def run_local_test(pdf_path: str | Path, template_path: str | Path, output_dir: str | Path = LOCAL_OUTPUTS_DIR) -> dict[str, Path | int]:
-    """Run extraction and write all local test artifacts to output_dir."""
     pdf_path = Path(pdf_path)
     template_path = Path(template_path)
     output_dir = Path(output_dir)
@@ -152,7 +129,6 @@ def run_local_test(pdf_path: str | Path, template_path: str | Path, output_dir: 
         characteristic.metadata["drawing_name"] = pdf_path.stem
 
     capacity = template_row_capacity(template_path)
-
     ballooned_pdf = output_dir / f"{pdf_path.stem}_BALLOONED.pdf"
     suffix = ".xlsm" if template_path.suffix.lower() == ".xlsm" else ".xlsx"
     fai_excel = output_dir / f"{pdf_path.stem}_FAI{suffix}"
@@ -175,14 +151,13 @@ def run_local_test(pdf_path: str | Path, template_path: str | Path, output_dir: 
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run a local-only EZ FAI Builder sample test.")
+    parser = argparse.ArgumentParser(description="Run a local-only EZ-FAIR sample test.")
     parser.add_argument("--pdf", required=True, help="Path to the local PDF drawing.")
     parser.add_argument("--template", required=True, help="Path to the local Excel FAI template (.xlsx or .xlsm).")
     parser.add_argument("--output-dir", default=str(LOCAL_OUTPUTS_DIR), help="Directory where generated artifacts should be written.")
     args = parser.parse_args()
-
     outputs = run_local_test(args.pdf, args.template, args.output_dir)
-    print("EZ FAI local test complete")
+    print("EZ-FAIR local test complete")
     print(f"Extracted characteristics: {outputs['characteristic_count']}")
     print(f"Skipped candidates: {outputs['skipped_count']}")
     print(f"Ballooned PDF: {outputs['ballooned_pdf']}")
