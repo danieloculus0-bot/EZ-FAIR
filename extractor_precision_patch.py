@@ -33,12 +33,50 @@ def classify_dimension(text: str, context: str = "") -> str:
     blob = f"{text or ''} {context or ''}"
     if "°" in blob or "º" in blob or re.search(r"\bdeg\.?\b", blob, re.I):
         return "°"
-    if "Ø" in blob or "⌀" in blob or re.search(r"\b(?:DIA|DIAMETER)\b", blob, re.I):
+    if "Ø" in text or "⌀" in text or re.search(r"\b(?:DIA|DIAMETER)\b", blob, re.I):
         return "DIAMETER"
     if re.match(r"\s*[Rr]\s*\.?\d", text or "") or re.search(r"\b(?:RADIUS|RAD)\b", blob, re.I):
         return "RADIUS"
     if base.WELD_PATTERN.search(blob):
         return "WELD"
+    return "LINEAR"
+
+
+def _type_for_match(raw: str, line: str, near: str, match: re.Match[str]) -> str:
+    """Classify with slot and thru-hole context.
+
+    CAD PDFs often split the diameter symbol away from the number, so the plain
+    numeric token can look linear. For hole/slot callouts, the first value in
+    `.440 X 1.380 THRU` is the slot width/diameter-style characteristic, while
+    the second value remains linear.
+    """
+    direct = classify_dimension(raw, line)
+    if direct != "LINEAR":
+        return direct
+
+    before = line[max(0, match.start() - 14):match.start()]
+    after = line[match.end():match.end() + 40]
+    line_blob = line.replace("⌀", "Ø")
+    near_blob = near.replace("⌀", "Ø")
+
+    if re.search(r"Ø\s*$", before) or re.search(r"^\s*Ø", after):
+        return "DIAMETER"
+    if re.search(r"\b(?:DIA|DIAMETER)\b", f"{before} {after}", re.I):
+        return "DIAMETER"
+
+    has_thru = bool(re.search(r"\bTHRU\b", line_blob, re.I))
+    is_second_x_value = bool(re.search(r"[Xx×]\s*$", before))
+    is_first_x_value = bool(re.search(r"^\s*[Xx×]\s*\d", after))
+    if has_thru and is_first_x_value:
+        return "DIAMETER"
+    if has_thru and not is_second_x_value and not re.search(r"[Xx×]", before):
+        return "DIAMETER"
+
+    # Last-resort local context check for PDFs that separate Ø into a nearby text span.
+    # Keep this conservative so nearby title block junk does not turn every number into DIAMETER.
+    if "Ø" in near_blob and re.search(r"\bTHRU\b", near_blob, re.I) and not is_second_x_value:
+        return "DIAMETER"
+
     return "LINEAR"
 
 
@@ -71,7 +109,7 @@ def _title_noise(page: fitz.Page, rect: fitz.Rect, line: str, near: str) -> bool
     return False
 
 
-def _add(chars: list[Characteristic], skipped: list[SkippedCandidate], page: fitz.Page, page_i: int, raw: str, value: str, rect: fitz.Rect, line: str, near: str, comment: str, meta: dict[str, Any]) -> None:
+def _add(chars: list[Characteristic], skipped: list[SkippedCandidate], page: fitz.Page, page_i: int, raw: str, value: str, rect: fitz.Rect, line: str, near: str, comment: str, meta: dict[str, Any], forced_type: str | None = None) -> None:
     try:
         nominal = float(value)
     except Exception:
@@ -87,7 +125,7 @@ def _add(chars: list[Characteristic], skipped: list[SkippedCandidate], page: fit
     if reason and "title block" not in reason:
         base._record_skip(skipped, page_i, raw, reason, rect, near)
         return
-    typ = classify_dimension(raw, f"{line} {near}")
+    typ = forced_type or classify_dimension(raw, line)
     if _duplicate(chars, page_i, typ, nominal, rect, line):
         base._record_skip(skipped, page_i, raw, "duplicate candidate at same location", rect, near)
         return
@@ -112,7 +150,7 @@ def extract_pdf_dimensions(pdf_path: str | Path) -> list[Characteristic]:
         if rev:
             meta["revision"] = rev.group(1).strip()
         for page_i, page in enumerate(doc):
-            before = len(chars)
+            before_count = len(chars)
             lines = list(base._line_groups(page))
             for line, line_rect, words in lines:
                 if line_rect.y0 > page.rect.height * 0.70 and TITLE_SKIP.search(line):
@@ -124,18 +162,23 @@ def extract_pdf_dimensions(pdf_path: str | Path) -> list[Characteristic]:
                     if base._is_count_prefix(line, match):
                         base._record_skip(skipped, page_i, raw, "quantity/count prefix, not a standalone dimension", line_rect, line)
                         continue
-                    has_symbol = raw.startswith(("Ø", "R")) or bool((match.group("suffix") or "").strip())
+                    forced_type = _type_for_match(raw, line, "", match)
+                    has_symbol = raw.startswith(("Ø", "R")) or forced_type == "DIAMETER" or bool((match.group("suffix") or "").strip())
                     if not ("." in value or has_symbol or DIM_CONTEXT.search(line) or base.TOLERANCE_PATTERN.search(line)):
                         base._record_skip(skipped, page_i, raw, "no decimal or dimension context", line_rect, line)
                         continue
                     rect = base._match_rect_from_words(line, line_rect, words, match)
-                    _add(chars, skipped, page, page_i, raw, value, rect, line, base._nearby_text(page, rect), comment, meta)
-            if len(chars) == before:
+                    near = base._nearby_text(page, rect)
+                    forced_type = _type_for_match(raw, line, near, match)
+                    _add(chars, skipped, page, page_i, raw, value, rect, line, near, comment, meta, forced_type)
+            if len(chars) == before_count:
                 for line, line_rect in base._iter_text_spans(page):
                     for match in DIM_RE.finditer(line):
                         raw = _decorated_raw(line, match)
                         rect = base._match_rect_from_words(line, line_rect, [], match)
-                        _add(chars, skipped, page, page_i, raw, match.group("num"), rect, line, base._nearby_text(page, rect), comment, meta)
+                        near = base._nearby_text(page, rect)
+                        forced_type = _type_for_match(raw, line, near, match)
+                        _add(chars, skipped, page, page_i, raw, match.group("num"), rect, line, near, comment, meta, forced_type)
     for i, c in enumerate(chars, 1):
         c.char_number = i
     base.LAST_EXTRACTION_DEBUG["skipped"] = skipped
