@@ -65,14 +65,14 @@ powershell -ExecutionPolicy Bypass -File .\\run_local_test.ps1
 This is an MVP extraction engine, not a commercial-grade drawing parser. The review table is intentionally part of the workflow so users can delete false positives and correct extracted values before generating the final files.
 # EZ-FAIR
 
-Local first article builder for EZ Fabricating.
+Local first article builder
 
 ## What it does
 
 - Reads a PDF blueprint
 - Extracts likely dimensions
 - Creates a ballooned PDF
-- Fills an EZ FAB first article Excel template
+- Fills an EZ FAIR first article Excel template
 - Leaves admin fields blank for manual entry
 - Uses inclusive tolerance logic: Actual >= LSL and Actual <= USL
 
