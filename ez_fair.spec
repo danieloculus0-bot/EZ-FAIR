@@ -1,4 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
+from pathlib import Path
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 hiddenimports = []
@@ -10,6 +11,10 @@ datas = []
 datas += collect_data_files('openpyxl')
 datas += collect_data_files('pytesseract')
 
+vendor_tesseract = Path('vendor/tesseract')
+if vendor_tesseract.exists():
+    datas.append((str(vendor_tesseract), 'tesseract'))
+
 analysis = Analysis(
     ['ez_fair.py'],
     pathex=[],
@@ -18,7 +23,7 @@ analysis = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['pyinstaller_runtime_hook.py'],
     excludes=['pytest', 'reportlab'],
     noarchive=False,
     optimize=1,
