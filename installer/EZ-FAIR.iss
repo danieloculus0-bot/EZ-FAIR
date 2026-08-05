@@ -1,6 +1,6 @@
 #define MyAppName "EZ FAIR"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.0"
+  #define MyAppVersion "0.2.1"
 #endif
 #define MyAppPublisher "Daniel Boone Engineering"
 #define MyAppURL "https://github.com/danieloculus0-bot/EZ-FAIR"
