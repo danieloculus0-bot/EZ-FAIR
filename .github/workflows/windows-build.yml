@@ -29,18 +29,6 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
 
-      - name: Read application version
-        id: version
-        shell: pwsh
-        run: |
-          $text = Get-Content '.\app_version.py' -Raw
-          if ($text -notmatch 'APP_VERSION\s*=\s*["'']([^"'']+)["'']') {
-            throw 'APP_VERSION could not be read from app_version.py.'
-          }
-          $version = $Matches[1]
-          "version=$version" >> $env:GITHUB_OUTPUT
-          Write-Host "Building EZ FAIR $version"
-
       - name: Build and test Windows package
         shell: pwsh
         run: .\build_windows.ps1
@@ -51,20 +39,15 @@ jobs:
 
       - name: Build machine-wide installer
         shell: pwsh
-        env:
-          APP_VERSION: ${{ steps.version.outputs.version }}
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$env:APP_VERSION" installer\EZ-FAIR.iss
-          $installer = ".\release\EZ-FAIR-$env:APP_VERSION-Setup-x64.exe"
-          if (-not (Test-Path $installer)) {
-            throw "Machine-wide installer was not produced: $installer"
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=0.2.1" installer\EZ-FAIR.iss
+          if (-not (Test-Path '.\release\EZ-FAIR-0.2.1-Setup-x64.exe')) {
+            throw 'Machine-wide installer was not produced.'
           }
 
       - name: Verify packaged application
         shell: pwsh
-        env:
-          APP_VERSION: ${{ steps.version.outputs.version }}
         run: |
           $exe = '.\dist\EZ-FAIR\EZ-FAIR.exe'
           if (-not (Test-Path $exe)) { throw 'EZ-FAIR.exe was not produced.' }
@@ -72,18 +55,16 @@ jobs:
           if ($info.ProductName -ne 'EZ FAIR') { throw "Unexpected ProductName: $($info.ProductName)" }
           if ($info.CompanyName -ne 'Daniel Boone Engineering') { throw "Unexpected CompanyName: $($info.CompanyName)" }
           if ($info.FileDescription -ne 'EZ FAIR Inspection Platform') { throw "Unexpected FileDescription: $($info.FileDescription)" }
-          if (-not $info.ProductVersion.StartsWith($env:APP_VERSION)) { throw "Unexpected ProductVersion: $($info.ProductVersion)" }
+          if (-not $info.ProductVersion.StartsWith('0.2.1')) { throw "Unexpected ProductVersion: $($info.ProductVersion)" }
           if (-not (Test-Path '.\dist\EZ-FAIR\_internal\tesseract\tesseract.exe')) { throw 'Bundled OCR executable missing.' }
           Get-Item $exe | Format-List Name,Length,LastWriteTime
           $info | Format-List ProductName,CompanyName,FileDescription,FileVersion,ProductVersion,OriginalFilename
 
       - name: Generate checksums
         shell: pwsh
-        env:
-          APP_VERSION: ${{ steps.version.outputs.version }}
         run: |
           $files = @(
-            ".\release\EZ-FAIR-$env:APP_VERSION-Setup-x64.exe",
+            '.\release\EZ-FAIR-0.2.1-Setup-x64.exe',
             '.\dist\EZ-FAIR-Windows-x64.zip'
           )
           $lines = foreach ($file in $files) {
@@ -95,9 +76,9 @@ jobs:
       - name: Upload Windows installer and package
         uses: actions/upload-artifact@v4
         with:
-          name: EZ-FAIR-${{ steps.version.outputs.version }}-Windows-Release
+          name: EZ-FAIR-0.2.1-Windows-Release
           path: |
-            release/EZ-FAIR-${{ steps.version.outputs.version }}-Setup-x64.exe
+            release/EZ-FAIR-0.2.1-Setup-x64.exe
             release/SHA256SUMS.txt
             dist/EZ-FAIR-Windows-x64.zip
           if-no-files-found: error
