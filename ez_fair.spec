@@ -16,7 +16,7 @@ if vendor_tesseract.exists():
     datas.append((str(vendor_tesseract), 'tesseract'))
 
 analysis = Analysis(
-    ['ez_fair.py'],
+    ['ez_fair_release.py'],
     pathex=[],
     binaries=[],
     datas=datas,
@@ -50,7 +50,7 @@ exe = EXE(
     version='windows_version_info.txt',
     manifest='''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <assemblyIdentity version="0.2.1.0" processorArchitecture="amd64" name="DanielBooneEngineering.EZFAIR" type="win32"/>
+  <assemblyIdentity version="0.2.2.0" processorArchitecture="amd64" name="DanielBooneEngineering.EZFAIR" type="win32"/>
   <description>EZ FAIR Inspection Platform</description>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
