@@ -7,11 +7,13 @@ from tkinter import messagebox, ttk
 
 import ez_fai_builder as base
 from ez_fair_enhancements import ExtractionSettings, extract_pdf_dimensions_enhanced
+from gdt_control_candidates import GeometricControlCandidate, partition_geometric_controls
 
 
 class EnhancedEZFAIBuilderApp(base.EZFAIBuilderApp):
     def __init__(self):
         self.settings = ExtractionSettings.load()
+        self.gdt_control_candidates: list[GeometricControlCandidate] = []
         super().__init__()
         self.title("EZ FAIR")
 
@@ -86,12 +88,25 @@ class EnhancedEZFAIBuilderApp(base.EZFAIBuilderApp):
             self.save_settings_silent()
             self.status.set("Extracting vector text, title block, OCR fallback, and GD&T...")
             self.update_idletasks()
-            self.characteristics = extract_pdf_dimensions_enhanced(self.pdf_path, self.settings)
+
+            extracted = extract_pdf_dimensions_enhanced(self.pdf_path, self.settings)
+            self.characteristics, self.gdt_control_candidates = partition_geometric_controls(extracted)
+
             for characteristic in self.characteristics:
                 characteristic.metadata["drawing_name"] = self.pdf_path.stem
             self.review_table.load(self.characteristics)
+
             methods = sorted({str(item.metadata.get("extraction", "VECTOR")) for item in self.characteristics})
-            self.status.set(f"Extracted {len(self.characteristics)} characteristics using {', '.join(methods) or 'VECTOR'}. Review before export.")
+            control_count = len(self.gdt_control_candidates)
+            control_note = (
+                f" {control_count} unresolved GD&T control{'s' if control_count != 1 else ''} retained without balloons."
+                if control_count
+                else ""
+            )
+            self.status.set(
+                f"Extracted {len(self.characteristics)} balloonable characteristics using "
+                f"{', '.join(methods) or 'VECTOR'}.{control_note} Review before export."
+            )
         except Exception as exc:
             self.status.set("Extraction failed")
             messagebox.showerror("Extraction failed", str(exc))
