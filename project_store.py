@@ -18,6 +18,7 @@ def _data_root() -> Path:
 
 
 DATABASE_PATH = _data_root() / "ez_fair.db"
+BACKUP_ROOT = _data_root() / "Backups"
 
 
 @dataclass
@@ -52,16 +53,29 @@ class ProjectRecord:
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ProjectRecord":
+        payload = dict(data)
+        payload["metadata"] = ProjectMetadata(**payload.get("metadata", {}))
+        return cls(**payload)
+
 
 class ProjectStore:
-    def __init__(self, path: Path = DATABASE_PATH):
+    def __init__(self, path: Path = DATABASE_PATH, backup_root: Path = BACKUP_ROOT):
         self.path = path
+        self.backup_root = backup_root
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.backup_root.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA foreign_keys=ON")
         return connection
 
     def _initialize(self) -> None:
@@ -84,9 +98,23 @@ class ProjectStore:
             )
             db.execute("CREATE INDEX IF NOT EXISTS idx_projects_updated ON projects(updated_at DESC)")
 
+    def _backup_project(self, project: ProjectRecord, retain: int = 20) -> Path:
+        project_dir = self.backup_root / project.id
+        project_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        target = project_dir / f"{stamp}.json"
+        temporary = target.with_suffix(".tmp")
+        temporary.write_text(json.dumps(project.to_dict(), indent=2), encoding="utf-8")
+        temporary.replace(target)
+        backups = sorted(project_dir.glob("*.json"), reverse=True)
+        for old in backups[retain:]:
+            old.unlink(missing_ok=True)
+        return target
+
     def save(self, project: ProjectRecord) -> ProjectRecord:
         project.updated_at = datetime.now(timezone.utc).isoformat()
         with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
             db.execute(
                 """
                 INSERT INTO projects (
@@ -116,6 +144,7 @@ class ProjectStore:
                     project.updated_at,
                 ),
             )
+        self._backup_project(project)
         return project
 
     def load(self, project_id: str) -> ProjectRecord:
@@ -135,6 +164,19 @@ class ProjectStore:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
+
+    def recover_latest(self, project_id: str) -> ProjectRecord:
+        project_dir = self.backup_root / project_id
+        backups = sorted(project_dir.glob("*.json"), reverse=True)
+        if not backups:
+            raise FileNotFoundError(f"No backup exists for project {project_id}.")
+        data = json.loads(backups[0].read_text(encoding="utf-8"))
+        recovered = ProjectRecord.from_dict(data)
+        self.save(recovered)
+        return recovered
+
+    def backup_history(self, project_id: str) -> list[Path]:
+        return sorted((self.backup_root / project_id).glob("*.json"), reverse=True)
 
     def recent(self, limit: int = 20) -> list[dict[str, str]]:
         with self._connect() as db:
