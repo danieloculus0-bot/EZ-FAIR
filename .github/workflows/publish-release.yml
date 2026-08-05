@@ -40,24 +40,69 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-          python -m pip install pytest pyinstaller reportlab
+          python -m pip install pytest pyinstaller reportlab cyclonedx-bom
 
       - name: Run tests
         run: python -m pytest -q
 
-      - name: Build portable application
+      - name: Build Windows application
         run: pyinstaller --noconfirm --clean ez_fair.spec
 
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup --no-progress -y
 
-      - name: Build installer
+      - name: Build installer and release package
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$env:RELEASE_VERSION" installer\EZ-FAIR.iss
           Compress-Archive -Path dist\EZ-FAIR\* -DestinationPath "release\EZ-FAIR-$env:RELEASE_VERSION-Windows-x64.zip" -Force
+
+      - name: Generate SBOM
+        shell: pwsh
+        run: |
+          cyclonedx-py environment --output-format JSON --output-file "release\EZ-FAIR-$env:RELEASE_VERSION-SBOM.json"
+
+      - name: Generate release integrity manifest
+        shell: pwsh
+        run: |
+          $installer = "release\EZ-FAIR-$env:RELEASE_VERSION-Setup-x64.exe"
+          $portable = "release\EZ-FAIR-$env:RELEASE_VERSION-Windows-x64.zip"
+          $manifest = [ordered]@{
+            schema_version = 1
+            product = 'EZ FAIR'
+            version = $env:RELEASE_VERSION
+            installer = [ordered]@{
+              name = [System.IO.Path]::GetFileName($installer)
+              sha256 = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
+              install_type = 'machine-wide-windows-installer'
+              silent_install = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART'
+            }
+            portable = [ordered]@{
+              name = [System.IO.Path]::GetFileName($portable)
+              sha256 = (Get-FileHash -Algorithm SHA256 $portable).Hash.ToLowerInvariant()
+            }
+            update_api = 'https://api.github.com/repos/danieloculus0-bot/EZ-FAIR/releases/latest'
+          }
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content "release\EZ-FAIR-release-manifest.json" -Encoding UTF8
+
+      - name: Optional Authenticode signing
+        if: ${{ secrets.EZ_FAIR_SIGNING_CERT_BASE64 != '' }}
+        shell: pwsh
+        env:
+          SIGNING_CERT_BASE64: ${{ secrets.EZ_FAIR_SIGNING_CERT_BASE64 }}
+          SIGNING_CERT_PASSWORD: ${{ secrets.EZ_FAIR_SIGNING_CERT_PASSWORD }}
+        run: |
+          $certPath = Join-Path $env:RUNNER_TEMP 'ez-fair-signing.pfx'
+          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:SIGNING_CERT_BASE64))
+          $installer = "release\EZ-FAIR-$env:RELEASE_VERSION-Setup-x64.exe"
+          & signtool sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f $certPath /p $env:SIGNING_CERT_PASSWORD $installer
+          if ($LASTEXITCODE -ne 0) { throw 'Authenticode signing failed.' }
+          Remove-Item $certPath -Force
+          $manifest = Get-Content "release\EZ-FAIR-release-manifest.json" | ConvertFrom-Json
+          $manifest.installer.sha256 = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLowerInvariant()
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content "release\EZ-FAIR-release-manifest.json" -Encoding UTF8
 
       - name: Create tag and GitHub release
         shell: pwsh
@@ -75,6 +120,8 @@ jobs:
           $args = @('release','create',$tag,
             "release\EZ-FAIR-$env:RELEASE_VERSION-Setup-x64.exe",
             "release\EZ-FAIR-$env:RELEASE_VERSION-Windows-x64.zip",
+            "release\EZ-FAIR-$env:RELEASE_VERSION-SBOM.json",
+            "release\EZ-FAIR-release-manifest.json",
             '--title',"EZ FAIR $env:RELEASE_VERSION",
             '--generate-notes')
           if ('${{ inputs.prerelease }}' -eq 'true') { $args += '--prerelease' }
