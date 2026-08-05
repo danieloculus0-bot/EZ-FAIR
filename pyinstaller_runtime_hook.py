@@ -1,4 +1,4 @@
-"""PyInstaller runtime configuration for the bundled Tesseract engine."""
+"""PyInstaller runtime configuration for bundled dependencies and compatibility."""
 from __future__ import annotations
 
 import os
@@ -24,3 +24,13 @@ if tesseract_exe.exists():
         pytesseract.pytesseract.tesseract_cmd = str(tesseract_exe)
     except Exception:
         pass
+
+# Compatibility for the industrial GUI packet path. The original working
+# implementation is add_pdf_balloons; older/newer GUI code may call the more
+# descriptive generate_ballooned_pdf name.
+try:
+    import ez_fai_builder
+    if not hasattr(ez_fai_builder, "generate_ballooned_pdf"):
+        ez_fai_builder.generate_ballooned_pdf = ez_fai_builder.add_pdf_balloons
+except Exception:
+    pass
