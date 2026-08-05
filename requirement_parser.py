@@ -40,26 +40,26 @@ def classify_feature(text: str) -> str:
     value = (text or "").upper().replace("º", "°")
     if re.search(r"\b(?:SPHERICAL\s+RADIUS|SR)\s*" + NUM, value):
         return "SPHERICAL RADIUS"
-    if re.search(r"(?:Ø|⌀|\bDIA\.?\b|\bDIAMETER\b)\s*" + NUM, value):
-        return "DIAMETER"
-    if re.search(r"(?:\bR\s*" + NUM + r"|\bRADIUS\b)", value):
-        return "RADIUS"
-    if "°" in value or re.search(r"\bDEG(?:REE)?S?\b", value):
-        return "ANGLE"
     if re.search(r"\b(?:C'?BORE|COUNTERBORE)\b|⌴", value):
         return "COUNTERBORE"
     if re.search(r"\b(?:C'?SINK|COUNTERSINK)\b|⌵", value):
         return "COUNTERSINK"
-    if re.search(r"\b(?:DEPTH|DEEP)\b|↧", value):
-        return "DEPTH"
-    if re.search(r"\b(?:UNC|UNF|UNEF|NPT|BSPP?|ACME|THREAD|THD)\b|\d+\s*-\s*\d+", value):
-        return "THREAD"
     if re.search(r"\bCHAMFER\b|" + NUM + r"\s*[X×]\s*45\s*°", value):
         return "CHAMFER"
+    if re.search(r"\b(?:UNC|UNF|UNEF|NPT|BSPP?|ACME|THREAD|THD)\b|\d+\s*-\s*\d+", value):
+        return "THREAD"
+    if re.search(r"(?:Ø|⌀|\bDIA\.?\b|\bDIAMETER\b)\s*" + NUM, value):
+        return "DIAMETER"
+    if re.search(r"(?:\bR\s*" + NUM + r"|\bRADIUS\b)", value):
+        return "RADIUS"
+    if re.search(r"\b(?:DEPTH|DEEP)\b|↧", value):
+        return "DEPTH"
     if re.search(r"\bSURFACE\s+FINISH\b|\bRA\b|√", value):
         return "SURFACE FINISH"
     if re.search(r"\bWELD|FILLET|SEAM\b", value):
         return "WELD"
+    if "°" in value or re.search(r"\bDEG(?:REE)?S?\b", value):
+        return "ANGLE"
     return "LINEAR"
 
 
