@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import tkinter as tk
+import webbrowser
 from pathlib import Path
 from tkinter import messagebox, ttk
 
 import ez_fai_builder as base
+from app_version import APP_VERSION
 from ez_fair_enhancements import ExtractionSettings, extract_pdf_dimensions_enhanced
 from gdt_control_candidates import GeometricControlCandidate, partition_geometric_controls
+from update_manager import check_for_updates, download_and_launch_installer
 
 
 class EnhancedEZFAIBuilderApp(base.EZFAIBuilderApp):
@@ -15,7 +18,7 @@ class EnhancedEZFAIBuilderApp(base.EZFAIBuilderApp):
         self.settings = ExtractionSettings.load()
         self.gdt_control_candidates: list[GeometricControlCandidate] = []
         super().__init__()
-        self.title("EZ FAIR")
+        self.title(f"EZ FAIR {APP_VERSION}")
 
     def _build_ui(self) -> None:
         notebook = ttk.Notebook(self)
@@ -63,7 +66,40 @@ class EnhancedEZFAIBuilderApp(base.EZFAIBuilderApp):
         ttk.Checkbutton(settings_tab, text="Auto-detect tolerance box in bottom-right title block", variable=self.auto_title_var).grid(row=4, column=0, columnspan=2, sticky="w", padx=6, pady=8)
         ttk.Checkbutton(settings_tab, text="Use offline OCR fallback when vector extraction returns zero dimensions", variable=self.ocr_var).grid(row=5, column=0, columnspan=2, sticky="w", padx=6, pady=8)
         ttk.Button(settings_tab, text="Save Settings", command=self.save_settings).grid(row=6, column=0, sticky="w", padx=6, pady=12)
-        ttk.Label(settings_tab, text="OCR is fully local. Tesseract must be installed on the Windows machine.", wraplength=650).grid(row=7, column=0, columnspan=2, sticky="w", padx=6, pady=6)
+        ttk.Button(settings_tab, text="Check for Updates", command=self.check_updates).grid(row=6, column=1, sticky="w", padx=6, pady=12)
+        ttk.Label(settings_tab, text=f"Installed version: {APP_VERSION}").grid(row=7, column=0, columnspan=2, sticky="w", padx=6, pady=4)
+        ttk.Label(settings_tab, text="OCR is fully local. Tesseract must be installed on the Windows machine.", wraplength=650).grid(row=8, column=0, columnspan=2, sticky="w", padx=6, pady=6)
+
+    def check_updates(self) -> None:
+        self.status.set("Checking for EZ FAIR updates...")
+        self.update_idletasks()
+        try:
+            info = check_for_updates()
+            if not info.available:
+                self.status.set(f"EZ FAIR {APP_VERSION} is current.")
+                messagebox.showinfo("EZ FAIR Update", f"Version {APP_VERSION} is current.")
+                return
+            prompt = (
+                f"EZ FAIR {info.latest_version} is available.\n\n"
+                f"Installed: {info.current_version}\nLatest: {info.latest_version}\n\n"
+                "Download and launch the installer now?"
+            )
+            if not messagebox.askyesno("EZ FAIR Update Available", prompt):
+                self.status.set(f"Update {info.latest_version} available.")
+                return
+            if not info.download_url:
+                webbrowser.open(info.release_url)
+                self.status.set("Opened the EZ FAIR release page.")
+                return
+            installer = download_and_launch_installer(info)
+            self.status.set(f"Installer downloaded: {installer.name}")
+            messagebox.showinfo(
+                "Installer Started",
+                "The EZ FAIR installer has started. Close this window when prompted so the update can replace the installed files.",
+            )
+        except Exception as exc:
+            self.status.set("Update check failed")
+            messagebox.showerror("Update Check Failed", str(exc))
 
     def save_settings(self) -> None:
         try:
