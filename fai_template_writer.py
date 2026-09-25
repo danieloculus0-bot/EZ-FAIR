@@ -194,7 +194,7 @@ def _apply_r3_editable_layout(ws, end_row: int) -> None:
     ws.page_setup.orientation = "landscape"
     ws.page_setup.paperSize = ws.PAPERSIZE_LETTER
     ws.page_setup.fitToWidth = 1
-    ws.page_setup.fitToHeight = 0
+    ws.page_setup.fitToHeight = 1
     ws.page_setup.scale = None
     ws.page_margins.left = 0.25
     ws.page_margins.right = 0.25
@@ -309,9 +309,21 @@ def template_row_capacity(template_path: str | Path) -> int | None:
         ws = _pick_sheet(wb)
         if _is_r3_form(ws):
             return R3_TEMPLATE_CAPACITY
-        header_row, columns = _find_generic_header_row(ws)
-        if len(columns) >= 4:
-            return max(0, ws.max_row - header_row)
+
+        targets = _header_targets()
+        best_row = None
+        best_count = 0
+        for row in range(1, min(ws.max_row, 80) + 1):
+            found=set()
+            for col in range(1, min(ws.max_column, 80) + 1):
+                normalized=_norm(ws.cell(row=row,column=col).value)
+                if normalized in targets:
+                    found.add(targets[normalized])
+            if len(found)>best_count:
+                best_row=row
+                best_count=len(found)
+        if best_row is not None and best_count>=4:
+            return max(0,ws.max_row-best_row)
         return None
     finally:
         wb.close()
