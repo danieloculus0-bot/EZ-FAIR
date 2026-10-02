@@ -51,26 +51,83 @@ def is_geometric_control(item: base.Characteristic) -> bool:
     return str(item.type).upper().startswith("GD&T:")
 
 
+def _center(item: base.Characteristic) -> tuple[float, float]:
+    x0, y0, x1, y1 = item.rect
+    return ((x0 + x1) / 2.0, (y0 + y1) / 2.0)
+
+
+def _association_distance(feature: base.Characteristic, control: base.Characteristic) -> float:
+    fx, fy = _center(feature)
+    cx, cy = _center(control)
+    return ((fx - cx) ** 2 + (fy - cy) ** 2) ** 0.5
+
+
+def _association_gate(control: base.Characteristic) -> float:
+    width = float(control.metadata.get("page_width", 0) or 0)
+    height = float(control.metadata.get("page_height", 0) or 0)
+    if width > 0 and height > 0:
+        diagonal = (width * width + height * height) ** 0.5
+        return min(150.0, max(65.0, diagonal * 0.09))
+    return 100.0
+
+
 def partition_geometric_controls(
     items: Iterable[base.Characteristic],
 ) -> tuple[list[base.Characteristic], list[GeometricControlCandidate]]:
-    """Separate balloonable features from unresolved geometric controls.
+    """Link clear GD&T controls to nearby features and hold ambiguity for review.
 
-    Ordinary characteristics are renumbered after partitioning. Candidate
-    controls retain source coordinates and text but intentionally have no
-    balloon number.
+    A feature-control frame is itself an inspectable design characteristic for
+    FAI purposes. When a control is spatially close to one dimensional feature,
+    keep it immediately after that feature so the balloon/Form 3 sequence stays
+    logical. Controls that cannot be associated confidently remain unresolved
+    and are not auto-ballooned.
     """
 
     features: list[base.Characteristic] = []
-    controls: list[GeometricControlCandidate] = []
+    control_items: list[base.Characteristic] = []
+    unresolved: list[GeometricControlCandidate] = []
 
     for item in items:
         if is_geometric_control(item):
-            controls.append(GeometricControlCandidate.from_characteristic(item))
+            control_items.append(item)
         else:
             features.append(item)
 
-    for number, feature in enumerate(features, start=1):
-        feature.char_number = number
+    linked: dict[int, list[base.Characteristic]] = {id(feature): [] for feature in features}
+    for control in control_items:
+        same_page = [feature for feature in features if feature.page_index == control.page_index]
+        if not same_page:
+            unresolved.append(GeometricControlCandidate.from_characteristic(control))
+            continue
 
-    return features, controls
+        ranked = sorted((_association_distance(feature, control), feature) for feature in same_page)
+        best_distance, best_feature = ranked[0]
+        second_distance = ranked[1][0] if len(ranked) > 1 else float("inf")
+        gate = _association_gate(control)
+
+        # Require the best candidate to be local and meaningfully better than
+        # the runner-up. This avoids silently attaching an FCF in a crowded view.
+        unambiguous = best_distance <= gate and (
+            second_distance == float("inf") or best_distance <= second_distance * 0.72
+        )
+        if not unambiguous:
+            unresolved.append(GeometricControlCandidate.from_characteristic(control))
+            continue
+
+        control.metadata["linked_feature_raw_text"] = best_feature.raw_text
+        control.metadata["linked_feature_reference"] = best_feature.reference_location
+        control.metadata["balloon_group"] = best_feature.metadata.get("balloon_group")
+        control.metadata["gdt_association"] = "AUTO_NEAREST_UNAMBIGUOUS"
+        control.comments = (control.comments + f" Linked to {best_feature.raw_text or best_feature.reference_location}.").strip()
+        linked[id(best_feature)].append(control)
+
+    balloonable: list[base.Characteristic] = []
+    for feature in features:
+        balloonable.append(feature)
+        balloonable.extend(sorted(linked[id(feature)], key=lambda item: _association_distance(feature, item)))
+
+    for number, item in enumerate(balloonable, start=1):
+        item.char_number = number
+
+    return balloonable, unresolved
+
