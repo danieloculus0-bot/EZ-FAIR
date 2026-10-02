@@ -47,8 +47,19 @@ def test_builtin_workbook_contains_required_fields_and_editable_tooling(tmp_path
     workbook = load_workbook(output)
     sheet = workbook["Inspection Report"]
     values = [cell.value for row in sheet.iter_rows() for cell in row]
-    assert "INSPECTION REPORT" in values
+    assert "FIRST ARTICLE INSPECTION (FAI)" in values
     assert "Part No." in values
-    assert "Qualified Tooling" in values
+    assert "TOOLING\nUSED" in values
+    assert "SUPPLIER" in values
+    assert "INTERNAL" in values
     assert "MICROMETER [M-17]" in values
-    assert sheet.data_validations.count >= 1
+    assert sheet["A24"].value == 1
+    assert sheet["B24"].value == "P1-R2C3"
+    assert sheet["C24"].value == 0.995
+    assert sheet["D24"].value == 1.0
+    assert sheet["E24"].value == 1.005
+    assert sheet["J24"].value == 1.001
+    assert ">=C24" in sheet["K24"].value
+    assert "<=E24" in sheet["K24"].value
+    assert sheet["M24"].value == "MICROMETER [M-17]"
+    assert sheet.data_validations.count >= 2
