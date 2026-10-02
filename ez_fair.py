@@ -9,6 +9,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import ez_fai_builder as base
 from app_version import APP_VERSION
+from built_in_form_writer import write_inspection_workbook
 from fai_template_writer import fill_fai_template
 from ez_fair_enhancements import ExtractionSettings, extract_pdf_dimensions_enhanced
 from form_profiles import FormConfiguration, FormConfigurationStore, build_default_configuration, get_profile
@@ -110,7 +111,7 @@ class EZFairApp(tk.Tk):
         review_top.pack(fill=tk.X)
         self.pdf_label = ttk.Label(review_top, text="No drawing selected", style="Muted.TLabel")
         self.pdf_label.pack(side=tk.LEFT)
-        self.template_label = ttk.Label(review_top, text=" | No template selected", style="Muted.TLabel")
+        self.template_label = ttk.Label(review_top, text=" | Built-in default template", style="Muted.TLabel")
         self.template_label.pack(side=tk.LEFT)
         self.gdt_label = ttk.Label(review_top, text="GD&T unresolved: 0", style="Muted.TLabel")
         self.gdt_label.pack(side=tk.RIGHT)
@@ -263,7 +264,7 @@ class EZFairApp(tk.Tk):
             var.set(getattr(self.project.metadata, key, ""))
         self.review_table.load(self.characteristics)
         self.pdf_label.config(text=str(self.pdf_path) if self.pdf_path else "No drawing selected")
-        self.template_label.config(text=f" | {self.template_path}" if self.template_path else " | No template selected")
+        self.template_label.config(text=f" | {self.template_path}" if self.template_path else " | Built-in default template")
         self.gdt_label.config(text=f"GD&T unresolved: {len(self.gdt_controls)}")
         self.project_label.config(text=self.project.name)
 
@@ -335,10 +336,6 @@ class EZFairApp(tk.Tk):
         if not self.pdf_path:
             messagebox.showwarning("Missing Drawing", "Select a drawing PDF first.")
             return
-        if not self.template_path:
-            self.select_template()
-            if not self.template_path:
-                return
         if not self.review_table.characteristics:
             messagebox.showwarning("No Characteristics", "Extract or manually add characteristics before export.")
             return
@@ -350,14 +347,23 @@ class EZFairApp(tk.Tk):
             output_dir = Path(folder)
             stem = self.project.metadata.drawing_no or self.pdf_path.stem
             ballooned = output_dir / f"{stem}_BALLOONED.pdf"
-            workbook = output_dir / f"{stem}_FAI{self.template_path.suffix.lower()}"
+            workbook = output_dir / f"{stem}_FAI.xlsx"
             base.generate_ballooned_pdf(self.pdf_path, self.characteristics, ballooned)
-            fill_fai_template(
-                self.template_path,
-                self.characteristics,
-                workbook,
-                metadata=self.project.metadata,
-            )
+            if self.template_path:
+                workbook = output_dir / f"{stem}_FAI{self.template_path.suffix.lower()}"
+                fill_fai_template(
+                    self.template_path,
+                    self.characteristics,
+                    workbook,
+                    metadata=self.project.metadata,
+                )
+            else:
+                write_inspection_workbook(
+                    workbook,
+                    self.project.metadata,
+                    self.characteristics,
+                    self.form_config,
+                )
             self.project.status = "PACKET GENERATED"
             self.project_store.save(self.project)
             self.status.set(f"PACKET COMPLETE | {ballooned.name} | {workbook.name}")
