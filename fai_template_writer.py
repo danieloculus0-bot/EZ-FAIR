@@ -19,11 +19,11 @@ STRUCTURED_COLUMNS = {
     "Char Number": 1, "Reference Location": 2, "Requirement LSL": 3,
     "Requirement Nominal": 4, "Requirement USL": 5, "Type": 6,
     "Supplier Actual": 7, "Supplier Yes": 8, "Supplier No": 9,
-    "EZ Fabricating Actual": 10, "In Spec": 11, "Tooling Used": 13, "Comments": 14,
+    "Inspection Actual": 10, "In Spec": 11, "Tooling Used": 13, "Comments": 14,
 }
 GENERIC_HEADERS = [
     "Char Number", "Reference Location", "Requirement LSL", "Requirement Nominal",
-    "Requirement USL", "Type", "EZ Fabricating Actual", "In Spec", "Tooling Used", "Comments",
+    "Requirement USL", "Type", "Inspection Actual", "In Spec", "Tooling Used", "Comments",
 ]
 HEADER_ALIASES = {
     "Char Number": ["char", "char number", "char no", "characteristic", "balloon"],
@@ -32,7 +32,7 @@ HEADER_ALIASES = {
     "Requirement Nominal": ["requirement nominal", "nominal", "requirement", "dimension"],
     "Requirement USL": ["requirement usl", "usl", "upper limit", "maximum", "max"],
     "Type": ["type", "characteristic type"],
-    "EZ Fabricating Actual": ["ez fabricating actual", "actual", "measurement"],
+    "Inspection Actual": ["inspection actual", "actual", "measurement", "measured actual"],
     "In Spec": ["in spec", "pass fail", "accept", "result"],
     "Tooling Used": ["tooling used", "tooling", "gage", "inspection tool"],
     "Comments": ["comments", "notes", "remarks"],
@@ -65,7 +65,7 @@ def _row_values(characteristic: Any) -> dict[str, Any]:
         "Requirement Nominal": _safe(characteristic, "nominal"),
         "Requirement USL": _safe(characteristic, "usl"),
         "Type": _safe(characteristic, "type"),
-        "EZ Fabricating Actual": _safe(characteristic, "actual", ""),
+        "Inspection Actual": _safe(characteristic, "actual", ""),
         "Tooling Used": _safe(characteristic, "tooling", ""),
         "Comments": _safe(characteristic, "comments", ""),
     }
@@ -163,7 +163,7 @@ def _fill_structured(sheet, characteristics: list[Any], metadata: dict[str, Any]
     _fill_structured_metadata(sheet, metadata, characteristics)
     for row in range(STRUCTURED_START_ROW, end_row + 1):
         sheet.cell(row, 1, row - STRUCTURED_START_ROW + 1)
-        for key in ["Reference Location", "Requirement LSL", "Requirement Nominal", "Requirement USL", "Type", "Supplier Actual", "Supplier Yes", "Supplier No", "EZ Fabricating Actual", "Tooling Used", "Comments"]:
+        for key in ["Reference Location", "Requirement LSL", "Requirement Nominal", "Requirement USL", "Type", "Supplier Actual", "Supplier Yes", "Supplier No", "Inspection Actual", "Tooling Used", "Comments"]:
             sheet.cell(row, STRUCTURED_COLUMNS[key], None)
         sheet.cell(row, STRUCTURED_COLUMNS["In Spec"], _inclusive_formula(row))
         sheet.row_dimensions[row].height = 17
@@ -172,7 +172,7 @@ def _fill_structured(sheet, characteristics: list[Any], metadata: dict[str, Any]
         values = _row_values(characteristic)
         for key in ["Char Number", "Reference Location", "Requirement LSL", "Requirement Nominal", "Requirement USL", "Type", "Tooling Used", "Comments"]:
             sheet.cell(row, STRUCTURED_COLUMNS[key], values[key])
-        sheet.cell(row, STRUCTURED_COLUMNS["EZ Fabricating Actual"], None)
+        sheet.cell(row, STRUCTURED_COLUMNS["Inspection Actual"], None)
         sheet.cell(row, STRUCTURED_COLUMNS["In Spec"], _inclusive_formula(row))
     _add_validation(sheet, f"F{STRUCTURED_START_ROW}:F{end_row}", "'CHARACTERISTICS'!$A$1:$A$11")
     _add_validation(sheet, f"M{STRUCTURED_START_ROW}:M{end_row}", "'TOOLING'!$A$1:$A$10")
@@ -235,8 +235,8 @@ def _fill_generic(sheet, characteristics: list[Any]) -> None:
             _copy_row_style(sheet, header_row + 1, row)
         values = _row_values(characteristic)
         for header, value in values.items():
-            sheet.cell(row, columns[header], None if header == "EZ Fabricating Actual" else value)
-        actual = get_column_letter(columns["EZ Fabricating Actual"])
+            sheet.cell(row, columns[header], None if header == "Inspection Actual" else value)
+        actual = get_column_letter(columns["Inspection Actual"])
         lsl = get_column_letter(columns["Requirement LSL"])
         usl = get_column_letter(columns["Requirement USL"])
         sheet.cell(row, columns["In Spec"], f'=IF({actual}{row}="","",IF(AND({actual}{row}>={lsl}{row},{actual}{row}<={usl}{row}),"X",""))')
