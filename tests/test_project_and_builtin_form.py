@@ -45,7 +45,7 @@ def test_builtin_workbook_contains_required_fields_and_editable_tooling(tmp_path
         build_default_configuration(),
     )
     workbook = load_workbook(output)
-    sheet = workbook["Inspection Report"]
+    sheet = workbook["FAI FORM"]
     values = [cell.value for row in sheet.iter_rows() for cell in row]
     assert "FIRST ARTICLE INSPECTION (FAI)" in values
     assert "Part No." in values
