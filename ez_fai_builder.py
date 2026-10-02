@@ -20,8 +20,10 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
 TITLE_BLOCK_DEFAULTS = {
+    "one_place": 0.1,
     "two_place": 0.02,
     "three_place": 0.005,
+    "four_place": 0.0005,
     "angular": 2.0,
 }
 
@@ -143,12 +145,21 @@ def _decimal_places(value_text: str) -> int:
 
 
 def calculate_tolerance_limits(nominal: float, value_text: str, dim_type: str, context: str = "") -> tuple[float, float]:
-    """Calculate inclusive lower/upper tolerance limits for a dimension.
+    """Calculate inclusive limits using explicit callout tolerance first.
 
-    Explicit bilateral tolerances like +.13 / -.03 win. Otherwise title-block
-    defaults are applied: two-place ±0.02, three-place ±0.005, angular ±2.
+    If the callout does not carry an explicit tolerance, apply the detected
+    title-block default matching the displayed precision. This mirrors normal
+    drawing practice: explicit limits override general/title-block tolerances.
     """
-    tolerance_match = TOLERANCE_PATTERN.search(context or "")
+    from requirement_parser import parse_requirement
+
+    normalized = (context or "").replace("＋", "+").replace("−", "-").replace("º", "°")
+    parsed = parse_requirement(normalized)
+    if parsed.explicit_tolerance and parsed.lsl is not None and parsed.usl is not None:
+        if parsed.nominal is None or abs(float(parsed.nominal) - float(nominal)) <= 1e-6:
+            return round(float(parsed.lsl), 6), round(float(parsed.usl), 6)
+
+    tolerance_match = TOLERANCE_PATTERN.search(normalized)
     if tolerance_match:
         plus = float(tolerance_match.group("plus"))
         minus = float(tolerance_match.group("minus"))
@@ -156,10 +167,16 @@ def calculate_tolerance_limits(nominal: float, value_text: str, dim_type: str, c
 
     if dim_type == "°":
         tol = TITLE_BLOCK_DEFAULTS["angular"]
-    elif _decimal_places(value_text) >= 3:
-        tol = TITLE_BLOCK_DEFAULTS["three_place"]
     else:
-        tol = TITLE_BLOCK_DEFAULTS["two_place"]
+        places = _decimal_places(value_text)
+        if places <= 1:
+            tol = TITLE_BLOCK_DEFAULTS["one_place"]
+        elif places == 2:
+            tol = TITLE_BLOCK_DEFAULTS["two_place"]
+        elif places == 3:
+            tol = TITLE_BLOCK_DEFAULTS["three_place"]
+        else:
+            tol = TITLE_BLOCK_DEFAULTS["four_place"]
     return round(nominal - tol, 6), round(nominal + tol, 6)
 
 
@@ -329,7 +346,7 @@ def extract_pdf_dimensions(pdf_path: str | Path) -> list[Characteristic]:
                         raw_text=raw,
                         tooling=DEFAULT_TOOLING.get(dim_type, ""),
                         comments=default_comment,
-                        metadata={"source": line_text or candidate_text, "nearby": nearby, "drawing_name": pdf_path.stem},
+                        metadata={"source": line_text or candidate_text, "nearby": nearby, "drawing_name": pdf_path.stem, "page_width": page.rect.width, "page_height": page.rect.height},
                     )
                 )
 
@@ -366,12 +383,13 @@ def extract_pdf_dimensions(pdf_path: str | Path) -> list[Characteristic]:
                         raw_text=span_text.strip(),
                         tooling=DEFAULT_TOOLING["WELD"],
                         comments=default_comment,
-                        metadata={"source": span_text, "nearby": nearby, "drawing_name": pdf_path.stem},
+                        metadata={"source": span_text, "nearby": nearby, "drawing_name": pdf_path.stem, "page_width": page.rect.width, "page_height": page.rect.height},
                     )
                 )
 
     LAST_EXTRACTION_DEBUG["skipped"] = skipped
-    return characteristics
+    from fai_ordering import order_characteristics_for_fai
+    return order_characteristics_for_fai(characteristics)
 
 
 def _balloon_position(page: fitz.Page, rect: fitz.Rect, radius: float, occupied: list[fitz.Rect] | None = None) -> fitz.Point:
