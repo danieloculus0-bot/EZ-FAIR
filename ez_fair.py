@@ -9,7 +9,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import ez_fai_builder as base
 from app_version import APP_VERSION
-from built_in_form_writer import write_inspection_workbook
+from fai_template_writer import fill_fai_template
 from ez_fair_enhancements import ExtractionSettings, extract_pdf_dimensions_enhanced
 from form_profiles import FormConfiguration, FormConfigurationStore, build_default_configuration, get_profile
 from gdt_control_candidates import GeometricControlCandidate, partition_geometric_controls
@@ -43,6 +43,7 @@ class EZFairApp(tk.Tk):
         self.form_config = self.form_store.load()
         self.project = ProjectRecord(form_configuration=asdict(self.form_config))
         self.pdf_path: Path | None = None
+        self.template_path: Path | None = None
         self.characteristics: list[base.Characteristic] = []
         self.gdt_controls: list[GeometricControlCandidate] = []
         self.metadata_vars: dict[str, tk.StringVar] = {}
@@ -85,6 +86,7 @@ class EZFairApp(tk.Tk):
         ttk.Button(toolbar, text="SAVE", command=self.save_project).pack(side=tk.LEFT, padx=3)
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=8)
         ttk.Button(toolbar, text="SELECT DRAWING", command=self.select_pdf).pack(side=tk.LEFT, padx=3)
+        ttk.Button(toolbar, text="SELECT TEMPLATE", command=self.select_template).pack(side=tk.LEFT, padx=3)
         ttk.Button(toolbar, text="EXTRACT + REVIEW", command=self.extract_dimensions).pack(side=tk.LEFT, padx=3)
         ttk.Button(toolbar, text="GENERATE PACKET", command=self.generate_outputs).pack(side=tk.LEFT, padx=3)
         ttk.Button(toolbar, text="DELETE ROW", style="Danger.TButton", command=self.delete_rows).pack(side=tk.LEFT, padx=3)
@@ -108,6 +110,8 @@ class EZFairApp(tk.Tk):
         review_top.pack(fill=tk.X)
         self.pdf_label = ttk.Label(review_top, text="No drawing selected", style="Muted.TLabel")
         self.pdf_label.pack(side=tk.LEFT)
+        self.template_label = ttk.Label(review_top, text=" | No template selected", style="Muted.TLabel")
+        self.template_label.pack(side=tk.LEFT)
         self.gdt_label = ttk.Label(review_top, text="GD&T unresolved: 0", style="Muted.TLabel")
         self.gdt_label.pack(side=tk.RIGHT)
         self.review_table = base.ReviewTable(self.review_tab)
@@ -188,31 +192,36 @@ class EZFairApp(tk.Tk):
     def _build_settings_tab(self) -> None:
         frame = ttk.Frame(self.settings_tab, padding=18)
         frame.pack(fill=tk.BOTH, expand=True)
+        self.one_place_var = tk.StringVar(value=str(self.settings.one_place))
         self.two_place_var = tk.StringVar(value=str(self.settings.two_place))
         self.three_place_var = tk.StringVar(value=str(self.settings.three_place))
+        self.four_place_var = tk.StringVar(value=str(self.settings.four_place))
         self.angular_var = tk.StringVar(value=str(self.settings.angular))
         self.ocr_dpi_var = tk.StringVar(value=str(self.settings.ocr_dpi))
         self.auto_title_var = tk.BooleanVar(value=self.settings.auto_detect_title_block)
         self.ocr_var = tk.BooleanVar(value=self.settings.enable_ocr_fallback)
         for row, (label, var) in enumerate([
+            ("One-place default ±", self.one_place_var),
             ("Two-place default ±", self.two_place_var),
             ("Three-place default ±", self.three_place_var),
+            ("Four-place default ±", self.four_place_var),
             ("Angular default ± degrees", self.angular_var),
             ("OCR DPI", self.ocr_dpi_var),
         ]):
             ttk.Label(frame, text=label).grid(row=row, column=0, sticky="w", padx=6, pady=6)
             ttk.Entry(frame, textvariable=var, width=16).grid(row=row, column=1, sticky="w", padx=6, pady=6)
-        ttk.Checkbutton(frame, text="Auto-detect title block", variable=self.auto_title_var).grid(row=4, column=0, columnspan=2, sticky="w", pady=6)
-        ttk.Checkbutton(frame, text="Use local OCR fallback", variable=self.ocr_var).grid(row=5, column=0, columnspan=2, sticky="w", pady=6)
-        ttk.Button(frame, text="SAVE SETTINGS", command=self.save_settings).grid(row=6, column=0, sticky="w", pady=14)
-        ttk.Button(frame, text="CHECK FOR UPDATES", command=self.check_updates).grid(row=6, column=1, sticky="w", pady=14)
-        ttk.Label(frame, text=f"Installed version: {APP_VERSION}", style="Muted.TLabel").grid(row=7, column=0, columnspan=2, sticky="w")
+        ttk.Checkbutton(frame, text="Auto-detect title block", variable=self.auto_title_var).grid(row=6, column=0, columnspan=2, sticky="w", pady=6)
+        ttk.Checkbutton(frame, text="Use local OCR fallback", variable=self.ocr_var).grid(row=7, column=0, columnspan=2, sticky="w", pady=6)
+        ttk.Button(frame, text="SAVE SETTINGS", command=self.save_settings).grid(row=8, column=0, sticky="w", pady=14)
+        ttk.Button(frame, text="CHECK FOR UPDATES", command=self.check_updates).grid(row=8, column=1, sticky="w", pady=14)
+        ttk.Label(frame, text=f"Installed version: {APP_VERSION}", style="Muted.TLabel").grid(row=9, column=0, columnspan=2, sticky="w")
 
     def new_project(self) -> None:
         if self.characteristics and not messagebox.askyesno("New Project", "Start a new project? Unsaved edits will be lost."):
             return
         self.project = ProjectRecord(form_configuration=asdict(self.form_config))
         self.pdf_path = None
+        self.template_path = None
         self.characteristics = []
         self.gdt_controls = []
         self.review_table.load([])
@@ -230,6 +239,7 @@ class EZFairApp(tk.Tk):
             return
         self.project = self.project_store.load(recent[selected - 1]["id"])
         self.pdf_path = Path(self.project.source_pdf) if self.project.source_pdf else None
+        self.template_path = Path(self.project.source_template) if self.project.source_template else None
         self.characteristics = [base.Characteristic(**item) for item in self.project.characteristics]
         self.gdt_controls = [GeometricControlCandidate(**item) for item in self.project.gdt_controls]
         self._load_project_into_ui()
@@ -239,6 +249,7 @@ class EZFairApp(tk.Tk):
         self.characteristics = self.review_table.characteristics
         self.project.metadata = ProjectMetadata(**{key: var.get().strip() for key, var in self.metadata_vars.items()})
         self.project.source_pdf = str(self.pdf_path or "")
+        self.project.source_template = str(self.template_path or "")
         self.project.characteristics = [asdict(item) for item in self.characteristics]
         self.project.gdt_controls = [asdict(item) for item in self.gdt_controls]
         self.project.form_configuration = asdict(self.form_config)
@@ -252,6 +263,7 @@ class EZFairApp(tk.Tk):
             var.set(getattr(self.project.metadata, key, ""))
         self.review_table.load(self.characteristics)
         self.pdf_label.config(text=str(self.pdf_path) if self.pdf_path else "No drawing selected")
+        self.template_label.config(text=f" | {self.template_path}" if self.template_path else " | No template selected")
         self.gdt_label.config(text=f"GD&T unresolved: {len(self.gdt_controls)}")
         self.project_label.config(text=self.project.name)
 
@@ -282,6 +294,18 @@ class EZFairApp(tk.Tk):
         except Exception as exc:
             self.status.set(f"DRAWING LOADED | METADATA WARNING: {exc}")
 
+    def select_template(self) -> None:
+        filename = filedialog.askopenfilename(
+            title="Select approved inspection template",
+            filetypes=[("Excel templates", "*.xlsx *.xlsm"), ("Excel workbook", "*.xlsx"), ("Macro-enabled workbook", "*.xlsm")],
+        )
+        if not filename:
+            return
+        self.template_path = Path(filename)
+        self.project.source_template = filename
+        self.template_label.config(text=f" | {self.template_path}")
+        self.status.set("INSPECTION TEMPLATE LOADED")
+
     def extract_dimensions(self) -> None:
         if not self.pdf_path:
             messagebox.showwarning("Missing Drawing", "Select a drawing PDF first.")
@@ -311,6 +335,10 @@ class EZFairApp(tk.Tk):
         if not self.pdf_path:
             messagebox.showwarning("Missing Drawing", "Select a drawing PDF first.")
             return
+        if not self.template_path:
+            self.select_template()
+            if not self.template_path:
+                return
         if not self.review_table.characteristics:
             messagebox.showwarning("No Characteristics", "Extract or manually add characteristics before export.")
             return
@@ -322,9 +350,14 @@ class EZFairApp(tk.Tk):
             output_dir = Path(folder)
             stem = self.project.metadata.drawing_no or self.pdf_path.stem
             ballooned = output_dir / f"{stem}_BALLOONED.pdf"
-            workbook = output_dir / f"{stem}_INSPECTION_REPORT.xlsx"
+            workbook = output_dir / f"{stem}_FAI{self.template_path.suffix.lower()}"
             base.generate_ballooned_pdf(self.pdf_path, self.characteristics, ballooned)
-            write_inspection_workbook(workbook, self.project.metadata, self.characteristics, self.form_config)
+            fill_fai_template(
+                self.template_path,
+                self.characteristics,
+                workbook,
+                metadata=self.project.metadata,
+            )
             self.project.status = "PACKET GENERATED"
             self.project_store.save(self.project)
             self.status.set(f"PACKET COMPLETE | {ballooned.name} | {workbook.name}")
@@ -396,8 +429,10 @@ class EZFairApp(tk.Tk):
 
     def save_settings(self, silent: bool = False) -> None:
         try:
+            self.settings.one_place = float(self.one_place_var.get())
             self.settings.two_place = float(self.two_place_var.get())
             self.settings.three_place = float(self.three_place_var.get())
+            self.settings.four_place = float(self.four_place_var.get())
             self.settings.angular = float(self.angular_var.get())
             self.settings.ocr_dpi = int(self.ocr_dpi_var.get())
             if not 150 <= self.settings.ocr_dpi <= 600:
