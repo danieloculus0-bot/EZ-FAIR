@@ -47,7 +47,7 @@ def test_builtin_workbook_contains_required_fields_and_editable_tooling(tmp_path
     workbook = load_workbook(output)
     sheet = workbook["Inspection Report"]
     values = [cell.value for row in sheet.iter_rows() for cell in row]
-    assert "EZ FAIR INSPECTION REPORT" in values
+    assert "INSPECTION REPORT" in values
     assert "Part No." in values
     assert "Qualified Tooling" in values
     assert "MICROMETER [M-17]" in values
