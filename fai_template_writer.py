@@ -111,8 +111,14 @@ def _inclusive_formula(row: int) -> str:
     return f'=IF(J{row}="","",IF(AND(J{row}>=C{row},J{row}<=E{row}),"X",""))'
 
 
-def _fill_structured_metadata(sheet, metadata: dict[str, Any] | None = None) -> None:
-    metadata = metadata or {}
+def _fill_structured_metadata(
+    sheet,
+    metadata: dict[str, Any] | None = None,
+    characteristics: list[Any] | None = None,
+) -> None:
+    metadata = dict(metadata or {})
+    if not metadata and characteristics:
+        metadata.update(_metadata(characteristics[0]))
     approved = {
         "part_no": "B6",
         "part_name": "K6",
@@ -154,7 +160,7 @@ def _ensure_structured_capacity(sheet, count: int) -> int:
 
 def _fill_structured(sheet, characteristics: list[Any], metadata: dict[str, Any] | None = None) -> None:
     end_row = _ensure_structured_capacity(sheet, len(characteristics))
-    _fill_structured_metadata(sheet, metadata)
+    _fill_structured_metadata(sheet, metadata, characteristics)
     for row in range(STRUCTURED_START_ROW, end_row + 1):
         sheet.cell(row, 1, row - STRUCTURED_START_ROW + 1)
         for key in ["Reference Location", "Requirement LSL", "Requirement Nominal", "Requirement USL", "Type", "Supplier Actual", "Supplier Yes", "Supplier No", "EZ Fabricating Actual", "Tooling Used", "Comments"]:
@@ -237,11 +243,15 @@ def _fill_generic(sheet, characteristics: list[Any]) -> None:
 
 
 def template_row_capacity(template_path: str | Path) -> int | None:
-    """Return None because supported templates grow to the required row count."""
+    """Return starter rows for UI information only.
+
+    This value is not an export limit. Structured templates are extended to the
+    required number of characteristic rows automatically.
+    """
     workbook = load_workbook(template_path, read_only=False, data_only=False)
     try:
-        _pick_sheet(workbook)
-        return None
+        sheet = _pick_sheet(workbook)
+        return STRUCTURED_STARTER_ROWS if _is_structured_fai_form(sheet) else None
     finally:
         workbook.close()
 
