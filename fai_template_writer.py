@@ -11,11 +11,11 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.properties import PageSetupProperties
 
-EXACT_R3_SHEET = "FAI FORM"
-R3_START_ROW = 24
-R3_TEMPLATE_END_ROW = 48
-R3_TEMPLATE_CAPACITY = 25
-R3_COLUMNS = {
+STRUCTURED_TEMPLATE_SHEET = "FAI FORM"
+STRUCTURED_START_ROW = 24
+STRUCTURED_STYLE_END_ROW = 48
+STRUCTURED_STARTER_ROWS = 25
+STRUCTURED_COLUMNS = {
     "Char Number": 1, "Reference Location": 2, "Requirement LSL": 3,
     "Requirement Nominal": 4, "Requirement USL": 5, "Type": 6,
     "Supplier Actual": 7, "Supplier Yes": 8, "Supplier No": 9,
@@ -72,10 +72,10 @@ def _row_values(characteristic: Any) -> dict[str, Any]:
 
 
 def _pick_sheet(workbook):
-    return workbook[EXACT_R3_SHEET] if EXACT_R3_SHEET in workbook.sheetnames else workbook.active
+    return workbook[STRUCTURED_TEMPLATE_SHEET] if STRUCTURED_TEMPLATE_SHEET in workbook.sheetnames else workbook.active
 
 
-def _is_r3_form(sheet) -> bool:
+def _is_structured_fai_form(sheet) -> bool:
     markers = " ".join(str(sheet[cell].value or "").upper() for cell in ("A3", "A22", "C22", "G22", "J22"))
     return "FIRST ARTICLE" in markers and "CHAR" in markers and "REQUIREMENT" in markers and "INSPECTION RESULT" in markers
 
@@ -111,10 +111,8 @@ def _inclusive_formula(row: int) -> str:
     return f'=IF(J{row}="","",IF(AND(J{row}>=C{row},J{row}<=E{row}),"X",""))'
 
 
-def _fill_r3_metadata(sheet, characteristics: list[Any]) -> None:
-    if not characteristics:
-        return
-    metadata = _metadata(characteristics[0])
+def _fill_structured_metadata(sheet, metadata: dict[str, Any] | None = None) -> None:
+    metadata = metadata or {}
     approved = {
         "part_no": "B6",
         "part_name": "K6",
@@ -126,34 +124,53 @@ def _fill_r3_metadata(sheet, characteristics: list[Any]) -> None:
             sheet[cell] = metadata[key]
 
 
-def _ensure_r3_capacity(sheet, count: int) -> int:
-    end_row = max(R3_TEMPLATE_END_ROW, R3_START_ROW + max(count, 1) - 1)
-    if end_row > R3_TEMPLATE_END_ROW:
-        sheet.insert_rows(R3_TEMPLATE_END_ROW + 1, end_row - R3_TEMPLATE_END_ROW)
-        for row in range(R3_TEMPLATE_END_ROW + 1, end_row + 1):
-            _copy_row_style(sheet, R3_TEMPLATE_END_ROW, row)
+def _row_merged_ranges(sheet, row: int) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    for merged in list(sheet.merged_cells.ranges):
+        if merged.min_row == row and merged.max_row == row:
+            ranges.append((merged.min_col, merged.max_col))
+    return ranges
+
+
+def _ensure_structured_capacity(sheet, count: int) -> int:
+    """Extend the template to any number of characteristics.
+
+    The last starter data row is treated only as a style/merge pattern. There is
+    no export row limit.
+    """
+    required_end = STRUCTURED_START_ROW + max(count, 1) - 1
+    end_row = max(STRUCTURED_STYLE_END_ROW, required_end)
+    if end_row <= STRUCTURED_STYLE_END_ROW:
+        return end_row
+
+    merge_pattern = _row_merged_ranges(sheet, STRUCTURED_STYLE_END_ROW)
+    sheet.insert_rows(STRUCTURED_STYLE_END_ROW + 1, end_row - STRUCTURED_STYLE_END_ROW)
+    for row in range(STRUCTURED_STYLE_END_ROW + 1, end_row + 1):
+        _copy_row_style(sheet, STRUCTURED_STYLE_END_ROW, row)
+        for min_col, max_col in merge_pattern:
+            sheet.merge_cells(start_row=row, start_column=min_col, end_row=row, end_column=max_col)
     return end_row
 
 
-def _fill_r3(sheet, characteristics: list[Any]) -> None:
-    end_row = _ensure_r3_capacity(sheet, len(characteristics))
-    _fill_r3_metadata(sheet, characteristics)
-    for row in range(R3_START_ROW, end_row + 1):
-        sheet.cell(row, 1, row - R3_START_ROW + 1)
+def _fill_structured(sheet, characteristics: list[Any], metadata: dict[str, Any] | None = None) -> None:
+    end_row = _ensure_structured_capacity(sheet, len(characteristics))
+    _fill_structured_metadata(sheet, metadata)
+    for row in range(STRUCTURED_START_ROW, end_row + 1):
+        sheet.cell(row, 1, row - STRUCTURED_START_ROW + 1)
         for key in ["Reference Location", "Requirement LSL", "Requirement Nominal", "Requirement USL", "Type", "Supplier Actual", "Supplier Yes", "Supplier No", "EZ Fabricating Actual", "Tooling Used", "Comments"]:
-            sheet.cell(row, R3_COLUMNS[key], None)
-        sheet.cell(row, R3_COLUMNS["In Spec"], _inclusive_formula(row))
+            sheet.cell(row, STRUCTURED_COLUMNS[key], None)
+        sheet.cell(row, STRUCTURED_COLUMNS["In Spec"], _inclusive_formula(row))
         sheet.row_dimensions[row].height = 17
     for offset, characteristic in enumerate(characteristics):
-        row = R3_START_ROW + offset
+        row = STRUCTURED_START_ROW + offset
         values = _row_values(characteristic)
         for key in ["Char Number", "Reference Location", "Requirement LSL", "Requirement Nominal", "Requirement USL", "Type", "Tooling Used", "Comments"]:
-            sheet.cell(row, R3_COLUMNS[key], values[key])
-        sheet.cell(row, R3_COLUMNS["EZ Fabricating Actual"], None)
-        sheet.cell(row, R3_COLUMNS["In Spec"], _inclusive_formula(row))
-    _add_validation(sheet, f"F{R3_START_ROW}:F{end_row}", "'CHARACTERISTICS'!$A$1:$A$11")
-    _add_validation(sheet, f"M{R3_START_ROW}:M{end_row}", "'TOOLING'!$A$1:$A$10")
-    _add_validation(sheet, f"H{R3_START_ROW}:I{end_row}", "'ATTRIBUTE'!$A$1:$A$2")
+            sheet.cell(row, STRUCTURED_COLUMNS[key], values[key])
+        sheet.cell(row, STRUCTURED_COLUMNS["EZ Fabricating Actual"], None)
+        sheet.cell(row, STRUCTURED_COLUMNS["In Spec"], _inclusive_formula(row))
+    _add_validation(sheet, f"F{STRUCTURED_START_ROW}:F{end_row}", "'CHARACTERISTICS'!$A$1:$A$11")
+    _add_validation(sheet, f"M{STRUCTURED_START_ROW}:M{end_row}", "'TOOLING'!$A$1:$A$10")
+    _add_validation(sheet, f"H{STRUCTURED_START_ROW}:I{end_row}", "'ATTRIBUTE'!$A$1:$A$2")
     if sheet.sheet_properties.pageSetUpPr is None:
         sheet.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
     sheet.sheet_properties.pageSetUpPr.fitToPage = True
@@ -164,7 +181,7 @@ def _fill_r3(sheet, characteristics: list[Any]) -> None:
     sheet.page_setup.fitToWidth = 1
     sheet.page_setup.fitToHeight = 1
     sheet.sheet_view.showGridLines = False
-    for row in range(R3_START_ROW, end_row + 1):
+    for row in range(STRUCTURED_START_ROW, end_row + 1):
         for column in range(1, 15):
             cell = sheet.cell(row, column)
             cell.alignment = Alignment(horizontal=cell.alignment.horizontal or "center", vertical="center", wrap_text=True)
@@ -220,15 +237,21 @@ def _fill_generic(sheet, characteristics: list[Any]) -> None:
 
 
 def template_row_capacity(template_path: str | Path) -> int | None:
+    """Return None because supported templates grow to the required row count."""
     workbook = load_workbook(template_path, read_only=False, data_only=False)
     try:
-        sheet = _pick_sheet(workbook)
-        return R3_TEMPLATE_CAPACITY if _is_r3_form(sheet) else None
+        _pick_sheet(workbook)
+        return None
     finally:
         workbook.close()
 
 
-def fill_fai_template(template_path: str | Path, characteristics: Iterable[Any], output_path: str | Path | None = None) -> Path:
+def fill_fai_template(
+    template_path: str | Path,
+    characteristics: Iterable[Any],
+    output_path: str | Path | None = None,
+    metadata: Any | None = None,
+) -> Path:
     template = Path(template_path)
     rows = list(characteristics)
     if output_path is None:
@@ -240,8 +263,9 @@ def fill_fai_template(template_path: str | Path, characteristics: Iterable[Any],
     workbook = load_workbook(template, keep_vba=template.suffix.lower() == ".xlsm")
     _ensure_lists(workbook)
     sheet = _pick_sheet(workbook)
-    if _is_r3_form(sheet):
-        _fill_r3(sheet, rows)
+    metadata_dict = metadata if isinstance(metadata, dict) else getattr(metadata, "__dict__", {})
+    if _is_structured_fai_form(sheet):
+        _fill_structured(sheet, rows, metadata_dict)
     else:
         _fill_generic(sheet, rows)
     workbook.save(output)
