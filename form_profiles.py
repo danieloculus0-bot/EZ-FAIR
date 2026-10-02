@@ -129,7 +129,7 @@ CORE_COLUMNS = (
     )),
     FormColumn("supplier_actual", "Supplier Actual", 14),
     FormColumn("supplier_result", "Supplier Pass/Fail", 14, validation_list=("PASS", "FAIL")),
-    FormColumn("ez_actual", "EZ FAIR Actual", 14),
+    FormColumn("ez_actual", "Inspection Actual", 14),
     FormColumn("in_spec", "In Spec", 10, editable=False, formula="inclusive_limits"),
     FormColumn("qualified_tooling", "Qualified Tooling", 18, validation_list=(
         "VISUAL", "CALIPER", "MICROMETER", "HEIGHT GAGE", "PIN GAGE", "THREAD GAGE",
@@ -141,11 +141,11 @@ CORE_COLUMNS = (
 
 EZ_FAIR_R3_PROFILE = FormProfile(
     key="ez_fair_r3",
-    label="EZ FAIR R3",
+    label="Standard FAI",
     sections=(
         FormSection("header", "Part and Drawing Information", True, HEADER_FIELDS),
         FormSection("supplier", "Supplier Inspection Results", True),
-        FormSection("internal", "EZ FAIR Inspection Results", True),
+        FormSection("internal", "Internal Inspection Results", True),
         FormSection("tooling", "Qualified Tooling", True),
         FormSection("comments", "Comments", True),
     ),
