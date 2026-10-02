@@ -48,7 +48,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$env:APP_VERSION" installer\EZ-FAIR.iss
-          if (-not (Test-Path '.\release\EZ-FAIR-$env:APP_VERSION-Setup-x64.exe')) {
+          if (-not (Test-Path ".\release\EZ-FAIR-$env:APP_VERSION-Setup-x64.exe")) {
             throw 'Machine-wide installer was not produced.'
           }
 
@@ -70,7 +70,7 @@ jobs:
         shell: pwsh
         run: |
           $files = @(
-            '.\release\EZ-FAIR-$env:APP_VERSION-Setup-x64.exe',
+            ".\release\EZ-FAIR-$env:APP_VERSION-Setup-x64.exe",
             '.\dist\EZ-FAIR-Windows-x64.zip'
           )
           $lines = foreach ($file in $files) {
