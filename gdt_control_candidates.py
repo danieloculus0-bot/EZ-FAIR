@@ -100,9 +100,10 @@ def partition_geometric_controls(
             unresolved.append(GeometricControlCandidate.from_characteristic(control))
             continue
 
-        ranked = sorted((_association_distance(feature, control), feature) for feature in same_page)
-        best_distance, best_feature = ranked[0]
-        second_distance = ranked[1][0] if len(ranked) > 1 else float("inf")
+        ranked_features = sorted(same_page, key=lambda feature: _association_distance(feature, control))
+        best_feature = ranked_features[0]
+        best_distance = _association_distance(best_feature, control)
+        second_distance = _association_distance(ranked_features[1], control) if len(ranked_features) > 1 else float("inf")
         gate = _association_gate(control)
 
         # Require the best candidate to be local and meaningfully better than
