@@ -45,7 +45,7 @@ def _row_value(item: Any, key: str) -> Any:
         "feature_type": ("type", "feature_type", "Type"),
         "supplier_actual": ("supplier_actual",),
         "supplier_result": ("supplier_result",),
-        "ez_actual": ("actual", "ez_actual", "EZ Fabricating Actual"),
+        "ez_actual": ("actual", "ez_actual", "Inspection Actual"),
         "qualified_tooling": ("tooling", "qualified_tooling", "Tooling Used"),
         "comments": ("comments", "Comments"),
     }
@@ -75,7 +75,7 @@ def write_inspection_workbook(
 
     max_col = max(1, len(columns))
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max_col)
-    title = ws.cell(1, 1, "EZ FAIR INSPECTION REPORT")
+    title = ws.cell(1, 1, "INSPECTION REPORT")
     title.font = Font(size=18, bold=True, color=TEXT)
     title.fill = PatternFill("solid", fgColor=DARK)
     title.alignment = Alignment(horizontal="left", vertical="center")
@@ -181,6 +181,6 @@ def write_inspection_workbook(
     ws.page_setup.fitToWidth = 1
     ws.page_setup.fitToHeight = 0
     ws.sheet_properties.pageSetUpPr.fitToPage = True
-    ws.oddFooter.center.text = "EZ FAIR | Controlled inspection output"
+    ws.oddFooter.center.text = "Controlled inspection output"
     wb.save(output)
     return output
