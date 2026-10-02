@@ -45,6 +45,7 @@ class ProjectRecord:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     name: str = "Untitled Project"
     source_pdf: str = ""
+    source_template: str = ""
     status: str = "DRAFT"
     metadata: ProjectMetadata = field(default_factory=ProjectMetadata)
     characteristics: list[dict[str, Any]] = field(default_factory=list)
@@ -86,6 +87,7 @@ class ProjectStore:
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
                     source_pdf TEXT NOT NULL DEFAULT '',
+                    source_template TEXT NOT NULL DEFAULT '',
                     status TEXT NOT NULL DEFAULT 'DRAFT',
                     metadata_json TEXT NOT NULL,
                     characteristics_json TEXT NOT NULL,
@@ -96,6 +98,9 @@ class ProjectStore:
                 )
                 """
             )
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(projects)").fetchall()}
+            if "source_template" not in columns:
+                db.execute("ALTER TABLE projects ADD COLUMN source_template TEXT NOT NULL DEFAULT ''")
             db.execute("CREATE INDEX IF NOT EXISTS idx_projects_updated ON projects(updated_at DESC)")
 
     def _backup_project(self, project: ProjectRecord, retain: int = 20) -> Path:
@@ -118,12 +123,13 @@ class ProjectStore:
             db.execute(
                 """
                 INSERT INTO projects (
-                    id, name, source_pdf, status, metadata_json, characteristics_json,
+                    id, name, source_pdf, source_template, status, metadata_json, characteristics_json,
                     gdt_controls_json, form_configuration_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     name=excluded.name,
                     source_pdf=excluded.source_pdf,
+                    source_template=excluded.source_template,
                     status=excluded.status,
                     metadata_json=excluded.metadata_json,
                     characteristics_json=excluded.characteristics_json,
@@ -135,6 +141,7 @@ class ProjectStore:
                     project.id,
                     project.name,
                     project.source_pdf,
+                    project.source_template,
                     project.status,
                     json.dumps(asdict(project.metadata)),
                     json.dumps(project.characteristics),
@@ -156,6 +163,7 @@ class ProjectStore:
             id=row["id"],
             name=row["name"],
             source_pdf=row["source_pdf"],
+            source_template=row["source_template"],
             status=row["status"],
             metadata=ProjectMetadata(**json.loads(row["metadata_json"])),
             characteristics=json.loads(row["characteristics_json"]),
@@ -181,7 +189,7 @@ class ProjectStore:
     def recent(self, limit: int = 20) -> list[dict[str, str]]:
         with self._connect() as db:
             rows = db.execute(
-                "SELECT id, name, source_pdf, status, updated_at FROM projects ORDER BY updated_at DESC LIMIT ?",
+                "SELECT id, name, source_pdf, source_template, status, updated_at FROM projects ORDER BY updated_at DESC LIMIT ?",
                 (limit,),
             ).fetchall()
         return [dict(row) for row in rows]
