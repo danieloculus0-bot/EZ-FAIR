@@ -30,8 +30,10 @@ SETTINGS_PATH = Path.home() / ".ez_fair_settings.json"
 
 @dataclass
 class ExtractionSettings:
+    one_place: float = 0.1
     two_place: float = 0.02
     three_place: float = 0.005
+    four_place: float = 0.0005
     angular: float = 2.0
     auto_detect_title_block: bool = True
     enable_ocr_fallback: bool = True
@@ -75,11 +77,17 @@ DATUM_PATTERN = re.compile(r"(?:^|[|\s])([A-Z])(?:[|\s]|$)")
 
 # Title-block forms such as .XX ±.02, X.XX +/-.02, ANGLES ±2°.
 TITLE_TOL_PATTERNS = {
-    "three_place": [
-        re.compile(r"(?:\.XXX|X\.XXX|3\s*PLACE\w*)\s*(?:=|:)?\s*(?:±|\+/-)\s*(\.?(?:\d+\.\d+|\d+))", re.I),
+    "one_place": [
+        re.compile(r"(?:\.X(?!X)|X\.X(?!X)|1\s*PLACE\w*)\s*(?:=|:)?\s*(?:±|\+/-)\s*(\.?(?:\d+\.\d+|\d+))", re.I),
     ],
     "two_place": [
-        re.compile(r"(?:\.XX|X\.XX|2\s*PLACE\w*)\s*(?:=|:)?\s*(?:±|\+/-)\s*(\.?(?:\d+\.\d+|\d+))", re.I),
+        re.compile(r"(?:\.XX(?!X)|X\.XX(?!X)|2\s*PLACE\w*)\s*(?:=|:)?\s*(?:±|\+/-)\s*(\.?(?:\d+\.\d+|\d+))", re.I),
+    ],
+    "three_place": [
+        re.compile(r"(?:\.XXX(?!X)|X\.XXX(?!X)|3\s*PLACE\w*)\s*(?:=|:)?\s*(?:±|\+/-)\s*(\.?(?:\d+\.\d+|\d+))", re.I),
+    ],
+    "four_place": [
+        re.compile(r"(?:\.XXXX|X\.XXXX|4\s*PLACE\w*)\s*(?:=|:)?\s*(?:±|\+/-)\s*(\.?(?:\d+\.\d+|\d+))", re.I),
     ],
     "angular": [
         re.compile(r"(?:ANGLE\w*|ANGULAR)\s*(?:=|:)?\s*(?:±|\+/-)\s*(\d+(?:\.\d+)?)", re.I),
@@ -89,8 +97,10 @@ TITLE_TOL_PATTERNS = {
 
 def _apply_settings(settings: ExtractionSettings) -> None:
     base.TITLE_BLOCK_DEFAULTS.update(
+        one_place=float(settings.one_place),
         two_place=float(settings.two_place),
         three_place=float(settings.three_place),
+        four_place=float(settings.four_place),
         angular=float(settings.angular),
     )
 
@@ -175,22 +185,33 @@ def _extract_from_ocr(pdf_path: Path, settings: ExtractionSettings) -> list[base
                     rect=(candidate_rect.x0, candidate_rect.y0, candidate_rect.x1, candidate_rect.y1),
                     raw_text=raw,
                     tooling=base.DEFAULT_TOOLING.get(dim_type, ""),
-                    metadata={"source": line_text or candidate_text, "nearby": nearby, "drawing_name": pdf_path.stem, "extraction": "OCR"},
+                    metadata={"source": line_text or candidate_text, "nearby": nearby, "drawing_name": pdf_path.stem, "extraction": "OCR", "page_width": page.rect.width, "page_height": page.rect.height},
                 ))
     base.LAST_EXTRACTION_DEBUG["skipped"] = skipped
-    return characteristics
+    from fai_ordering import order_characteristics_for_fai
+    return order_characteristics_for_fai(characteristics)
 
 
 def detect_title_block_defaults(pdf_path: str | Path, settings: ExtractionSettings) -> dict[str, float]:
+    """Read general tolerances from the title/tolerance block.
+
+    Vector text is preferred. If any expected tolerance class is still missing,
+    OCR is also applied to the title-block region and the two text sources are
+    combined. This handles drawings where the title block is flattened/raster
+    while the rest of the PDF still contains vector text.
+    """
     detected: dict[str, float] = {}
     with fitz.open(pdf_path) as doc:
         for page in doc:
-            clip = fitz.Rect(page.rect.width * 0.55, page.rect.height * 0.55, page.rect.width, page.rect.height)
-            text = page.get_text("text", clip=clip)
-            if not text.strip() and settings.enable_ocr_fallback:
-                words = _page_ocr_words(page, settings.ocr_dpi)
-                text = " ".join(str(word[4]) for word in words if clip.intersects(base._word_rect(word)))
-            normalized = text.replace("＋", "+").replace("−", "-")
+            clip = fitz.Rect(page.rect.width * 0.50, page.rect.height * 0.50, page.rect.width, page.rect.height)
+            texts = [page.get_text("text", clip=clip)]
+            if settings.enable_ocr_fallback and len(detected) < len(TITLE_TOL_PATTERNS):
+                try:
+                    words = _page_ocr_words(page, settings.ocr_dpi)
+                    texts.append(" ".join(str(word[4]) for word in words if clip.intersects(base._word_rect(word))))
+                except RuntimeError:
+                    pass
+            normalized = " ".join(texts).replace("＋", "+").replace("−", "-").replace("º", "°")
             for key, patterns in TITLE_TOL_PATTERNS.items():
                 if key in detected:
                     continue
@@ -226,12 +247,19 @@ def extract_gdt_characteristics(pdf_path: str | Path, start_number: int, setting
                 if not name:
                     continue
                 rect = fitz.Rect(span["bbox"])
-                nearby = base._nearby_text(page, rect, radius=120) or text
+                line_clip = fitz.Rect(
+                    max(0, rect.x0 - 24),
+                    max(0, rect.y0 - 8),
+                    min(page.rect.width, rect.x1 + 260),
+                    min(page.rect.height, rect.y1 + 8),
+                )
+                line_text = page.get_text("text", clip=line_clip).replace("\n", " ").strip()
+                nearby = line_text or base._nearby_text(page, rect, radius=96) or text
                 tolerance_match = GDT_TOL_PATTERN.search(nearby)
                 if not tolerance_match:
                     continue
                 tolerance = float(tolerance_match.group("tol"))
-                datums = DATUM_PATTERN.findall(nearby)
+                datums = [d for d in DATUM_PATTERN.findall(nearby) if d not in {"M", "L", "S", "P"}]
                 datum_note = f" Datums: {'-'.join(datums[:3])}" if datums else ""
                 results.append(base.Characteristic(
                     char_number=start_number + len(results),
@@ -245,7 +273,7 @@ def extract_gdt_characteristics(pdf_path: str | Path, start_number: int, setting
                     raw_text=nearby[:160],
                     tooling="CMM / SURFACE PLATE",
                     comments=f"Feature control frame tolerance.{datum_note}".strip(),
-                    metadata={"source": text, "nearby": nearby, "drawing_name": Path(pdf_path).stem, "extraction": "GD&T"},
+                    metadata={"source": text, "nearby": nearby, "drawing_name": Path(pdf_path).stem, "extraction": "GD&T", "page_width": page.rect.width, "page_height": page.rect.height},
                 ))
     return results
 
