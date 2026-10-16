@@ -64,6 +64,8 @@ def test_husky_actual_pdf_regression():
     assert not [c for c in chars if c.page_index==0 and c.raw_text in ('.375', '.75') and c.rect[0]>900]
     assert len([c for c in chars if c.page_index==4 and c.type=='THREAD'])>=2
     assert len([c for c in chars if c.page_index==4 and c.type=='NOTE'])>=2
+    assert len([c for c in chars if c.page_index==0 and c.type=='WELD' and '1-2.7' in c.raw_text])==1
+    assert all(c.lsl=='' and c.usl=='' for c in chars if c.page_index==0 and c.raw_text=='3/16')
     assert len(set(c.metadata.get('page_part','') for c in chars))>2
     assert all(c.char_number==i for i,c in enumerate(chars,1))
 
