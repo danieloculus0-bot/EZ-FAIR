@@ -9,31 +9,13 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
-try:
-    from extractor_fraction_weld_patch import (
-        Characteristic,
-        add_pdf_balloons,
-        extract_pdf_dimensions,
-        get_last_skipped_candidates,
-        write_debug_report,
-    )
-except Exception:
-    try:
-        from extractor_precision_patch import (
-            Characteristic,
-            add_pdf_balloons,
-            extract_pdf_dimensions,
-            get_last_skipped_candidates,
-            write_debug_report,
-        )
-    except Exception:
-        from extractor_engine import (
-            Characteristic,
-            add_pdf_balloons,
-            extract_pdf_dimensions,
-            get_last_skipped_candidates,
-            write_debug_report,
-        )
+from engineering_characteristics import (
+    Characteristic,
+    add_pdf_balloons,
+    extract_pdf_dimensions,
+    get_last_skipped_candidates,
+    write_debug_report,
+)
 from fai_template_writer import fill_fai_template, template_row_capacity
 from local_test_runner import write_extraction_summary
 
@@ -284,7 +266,10 @@ class EzFairApp(tk.Tk):
             char = self.characteristics[index]
             try:
                 if col_name in {"lsl", "nominal", "usl"}:
-                    setattr(char, col_name, float(new_value))
+                    if col_name == "nominal" and char.type in {"THREAD", "WELD", "NOTE", "GD&T"}:
+                        setattr(char, col_name, new_value)
+                    else:
+                        setattr(char, col_name, float(new_value) if new_value.strip() else "")
                 elif col_name == "ref":
                     char.reference_location = str(new_value)
                 elif col_name == "raw":
