@@ -249,6 +249,8 @@ def extract_pdf_dimensions(pdf_path: str | Path) -> list[Characteristic]:
             candidates=by_page[pi]
             threads=_thread_features(page,pi,path.stem,skipped)
             gdt=_gdt_features(page,pi,path.stem)
+            weld_notes=[(text,r) for text,r,_ in base._line_groups(page) if re.search(r'\bWELD\s+TO\s+START\b',text,re.I)]
+            assembly_welded=bool(re.search(r'\bWELDED\b',page.get_text('text',clip=fitz.Rect(page.rect.width*.6,page.rect.height*.85,page.rect.width,page.rect.height)),re.I))
             accepted=[]
             for c in candidates:
                 rect=_c_rect(c)
@@ -259,12 +261,33 @@ def extract_pdf_dimensions(pdf_path: str | Path) -> list[Characteristic]:
                     _skip(skipped,c,'part of grouped thread specification');continue
                 if _is_modifier(c,candidates):
                     _skip(skipped,c,'tolerance component grouped with parent dimension');continue
-                if c.type=='WELD':
+                source_text=str(c.metadata.get('source','')).strip()
+                intermittent=re.fullmatch(r'\d+\s*-\s*\d+(?:\.\d+)?',source_text)
+                closest_weld=next((text for text,nrect in weld_notes if abs(nrect.y0-rect.y0)<45 and abs(nrect.x0-rect.x0)<180),None)
+                if intermittent and closest_weld:
+                    c.type='WELD'
+                    c.nominal='SEE PRINT'
+                    c.raw_text=source_text+' | '+closest_weld
+                    c.lsl=c.usl=''
+                    c.tooling='VISUAL / WELD GAGE'
+                    c.metadata['review_required']=True
+                    c.metadata['interpretation']='intermittent weld size/length/pitch/leader require review'
+                    c.comments='VERIFY WELD SIZE, LENGTH/PITCH, LEADER, AND PLACES'
+                elif c.type=='WELD':
                     # Symbol arrows or vector weld graphics are not fully decoded.
                     c.lsl=c.usl=''
                     c.metadata['review_required']=True
                     c.metadata['interpretation']='weld; verify symbol/leader/length/pitch'
                     c.comments=(c.comments+' | ' if c.comments else '')+'VERIFY WELD SYMBOL / LEADER / SIZE'
+                elif assembly_welded and re.fullmatch(r'\d+\s*/\s*\d+',str(c.raw_text)):
+                    # On weldment assembly sheets 3/16 can mean a fillet weld
+                    # size or plate thickness. With no established arrow leader,
+                    # neither numeric category nor title-block limits are safe.
+                    c.type='LINEAR'
+                    c.lsl=c.usl=''
+                    c.metadata['review_required']=True
+                    c.metadata['interpretation']='assembly fractional callout: weld or stock thickness uncertain'
+                    c.comments=(c.comments+' | ' if c.comments else '')+'VERIFY FRACTION / WELD LEADER / TOLERANCE'
                 else:
                     explicit=_explicit_limits(c,page)
                     if explicit:
@@ -281,11 +304,19 @@ def extract_pdf_dimensions(pdf_path: str | Path) -> list[Characteristic]:
                     c.metadata['review_required']=True
                     c.comments=(c.comments+' | ' if c.comments else '')+'VERIFY GD&T FRAME/LEADER'
                 accepted.append(c)
+            # A weld note already included in the intermittent weld requirement
+            # is not another independently inspectable characteristic.
+            merged=[c for c in accepted if c.type=='WELD' and ' | WELD TO START' in c.raw_text.upper()]
+            if merged:
+                accepted=[c for c in accepted if not (c.type=='WELD' and c.raw_text=='WELD SYMBOL' and any(abs(_c_rect(c).y0-_c_rect(m).y0)<45 for m in merged))]
             # Group categorical thread requirement into one balloon each.
             for th in threads:
                 th.metadata['page_part']=_drawing_number(page)
                 th.metadata['sheet_rules']=vars(rules)
-            result.extend(accepted+threads+gdt+_manufacturing_notes(page,pi,path.stem))
+            notes=_manufacturing_notes(page,pi,path.stem)
+            if merged:
+                notes=[n for n in notes if not any(n.raw_text in m.raw_text for m in merged)]
+            result.extend(accepted+threads+gdt+notes)
     for n,c in enumerate(result,1):c.char_number=n
     base.LAST_EXTRACTION_DEBUG['skipped']=skipped
     return result
