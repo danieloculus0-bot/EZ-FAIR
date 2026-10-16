@@ -28,11 +28,13 @@ OCR also requires the offline Windows Tesseract engine. Install Tesseract and en
 
 ## Run
 
-Launch the enhanced application:
+Launch the installed Windows workflow with the new engineering interpretation layer:
 
 ```bash
-python ez_fair.py
+python polished_gui.py
 ```
+
+`install_windows.ps1` uses this launcher. `ez_fair.py` is the older settings/OCR launcher and does not yet use the same engineering parser.
 
 The original MVP launcher remains available as:
 
@@ -42,11 +44,15 @@ python ez_fai_builder.py
 
 ## Extraction behavior
 
-1. EZ FAIR runs the existing vector PDF extraction engine.
-2. It scans the lower-right title-block area and applies detected drawing defaults when enabled.
-3. If vector extraction returns zero dimensions, it renders each page locally and runs Tesseract OCR.
-4. It performs a GD&T pass for feature-control-frame symbols and common extracted text equivalents.
-5. Every result remains editable in the review table before export.
+For `polished_gui.py`:
+
+1. It runs the numeric vector PDF extractor and the engineering interpretation layer.
+2. It filters template/revision/BOM clutter and groups technical callouts before numbering balloons.
+3. It reads sheet-specific title-block tolerance rules, applying explicit symmetric/asymmetric limits first.
+4. It records thread specifications and readable manufacturing notes as single categorical requirements, and flags incomplete GD&T/weld interpretations for QE review.
+5. Every result remains editable in the review table before export. See [engineering parser notes](docs/engineering-characteristics.md).
+
+The legacy `ez_fair.py` path retains its separate settings/OCR and GD&T behavior; the newer engineering parsing is not yet wired into that interface.
 
 Default settings are saved locally in `~/.ez_fair_settings.json`.
 
