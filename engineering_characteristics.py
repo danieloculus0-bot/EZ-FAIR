@@ -201,6 +201,20 @@ def _thread_part(c:Characteristic,threads:list[Characteristic])->bool:
 
 
 
+
+def _gdt_features(page:fitz.Page,page_i:int,pdf_name:str)->list[Characteristic]:
+    """Protect readable FCF text as a single categorical requirement.
+
+    Does not claim to decode vector-only symbols, feature association, or datums.
+    """
+    result=[]
+    for line,rect,_ in base._line_groups(page):
+        if not GDTS.search(line) or region_reason(page,rect,line):continue
+        # Never turn a general explanatory drawing note into a false GD&T frame.
+        if re.search(r'\b(?:ANSI|STANDARD|GENERAL|NOTE|DEFINITION)\b',line,re.I):continue
+        result.append(Characteristic(0,base._reference_location(page,rect,page_i),'SEE PRINT','','','GD&T',page_i,tuple(rect),line.strip(),'CMM / APPROPRIATE GAGE','VERIFY FCF / DATUMS / MODIFIERS / LEADER','',{'source':line,'drawing_name':pdf_name,'review_required':True,'interpretation':'visible GD&T text; datum and leader association unverified'}))
+    return result
+
 def _manufacturing_notes(page: fitz.Page, page_i:int, pdf_name:str)->list[Characteristic]:
     """Capture only clear manufacturing instructions, never the note index as a dimension."""
     lines=list(base._line_groups(page))
@@ -210,7 +224,8 @@ def _manufacturing_notes(page: fitz.Page, page_i:int, pdf_name:str)->list[Charac
         clean=' '.join(line.upper().split())
         if not any(k in clean for k in keys):continue
         # Some multi-line instructions need human verification of the extent.
-        related=[s for s,r,_ in lines if s!=line and r.x0>=rect.x0-15 and r.x0<rect.x1+70 and rect.y1 < r.y0 <=rect.y1+30 and re.search(r'\b(?:SURFACES|COATING|PROCESS|BASE PLATE)\b',s,re.I)]
+        next_note=min((r.y0 for s,r,_ in lines if r.y0>rect.y0+2 and abs(r.x0-rect.x0)<50 and re.match(r'^\s*\d+\.\s',s)),default=float('inf'))
+        related=[s for s,r,_ in lines if s!=line and r.x0>=rect.x0-15 and r.x0<rect.x1+95 and rect.y0+6 < r.y0 <=rect.y1+45 and r.y0<next_note and re.search(r'\b(?:SURFACES|COATING|PROCESS|BASE PLATE)\b',s,re.I)]
         label=line.strip() + (' | '+' '.join(related) if related else '')
         if any(n.raw_text==label for n in found):continue
         found.append(Characteristic(0,base._reference_location(page,rect,page_i),'SEE PRINT','','','NOTE',page_i,tuple(rect),label,'VISUAL','Verify manufacturing instruction and affected surfaces','',{'source':label,'drawing_name':pdf_name,'page_part':_drawing_number(page),'review_required':True,'interpretation':'manufacturing instruction'}))
@@ -233,13 +248,14 @@ def extract_pdf_dimensions(pdf_path: str | Path) -> list[Characteristic]:
             rules=parse_sheet_rules(page)
             candidates=by_page[pi]
             threads=_thread_features(page,pi,path.stem,skipped)
+            gdt=_gdt_features(page,pi,path.stem)
             accepted=[]
             for c in candidates:
                 rect=_c_rect(c)
                 reason=region_reason(page,rect,str(c.metadata.get('source','')))
                 if reason:
                     _skip(skipped,c,reason);continue
-                if _thread_part(c,threads):
+                if _thread_part(c,threads+gdt):
                     _skip(skipped,c,'part of grouped thread specification');continue
                 if _is_modifier(c,candidates):
                     _skip(skipped,c,'tolerance component grouped with parent dimension');continue
@@ -269,7 +285,7 @@ def extract_pdf_dimensions(pdf_path: str | Path) -> list[Characteristic]:
             for th in threads:
                 th.metadata['page_part']=_drawing_number(page)
                 th.metadata['sheet_rules']=vars(rules)
-            result.extend(accepted+threads+_manufacturing_notes(page,pi,path.stem))
+            result.extend(accepted+threads+gdt+_manufacturing_notes(page,pi,path.stem))
     for n,c in enumerate(result,1):c.char_number=n
     base.LAST_EXTRACTION_DEBUG['skipped']=skipped
     return result
