@@ -1,79 +1,39 @@
-# EZ FAIR
+# EZ-FAIR
 
-Local Windows-friendly Python desktop application for creating a ballooned PDF and FAI Excel workbook from a PDF blueprint.
+Desktop-assisted First Article Inspection drawing extraction and FAI document builder. It produces reviewable candidate characteristics from PDFs, not automatically certified measurements.
 
-## Features
+## Current build state
 
-- Select a PDF blueprint and Excel FAI template from a tkinter GUI.
-- Extract likely dimensional characteristics with PyMuPDF (`fitz`), including linear, angular, diameter, weld, and explicit bilateral tolerances.
-- Fall back to fully offline Tesseract OCR when a scanned or flattened PDF returns zero vector dimensions.
-- Detect common title-block default tolerance formats in the bottom-right corner of the drawing.
-- Save shop-specific two-place, three-place, and angular default tolerances in the Settings tab.
-- Recognize common GD&T symbols and text for position, flatness, parallelism, profile, perpendicularity, angularity, straightness, circularity, cylindricity, concentricity, and runout.
-- Review extracted rows before export and edit nominal, LSL, USL, type, tooling, and comments.
-- Generate outputs without overwriting the source PDF or Excel template:
-  - `[drawing name]_BALLOONED.pdf`
-  - `[drawing name]_FAI.xlsx`
-  - `EZ_FAI_DEBUG_REPORT.txt`
+**Reviewed:** 2026-10-20 · **Inspected main:** `223ad25777d6` · **Stage:** experimental/beta; individual workflow evidence below.
 
-## Install
+- [EZ-FAIR tests](https://github.com/danieloculus0-bot/EZ-FAIR/actions/runs/39502697068) — **Passed** at inspected `main`.
 
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-```
+[Live CI and build history](https://github.com/danieloculus0-bot/EZ-FAIR/actions) takes precedence over this dated snapshot.
 
-OCR also requires the offline Windows Tesseract engine. Install Tesseract and ensure `tesseract.exe` is available on PATH. No drawing data is sent to a cloud service.
+## Working capabilities
 
-## Run
+- PyMuPDF vector extraction, optional offline OCR, title-block tolerance and GD&T candidates, ballooned PDF plus editable FAI workbook.
+- Charcoal/steel/lime desktop presentation (Tkinter workbench); characteristic editing and source-specific comments.
+- Controlled ForgeVault released-PDF handoff validates identity, revision and SHA-256 before extracting review-required characteristics; Axiom integration exercised against real source on Windows/Linux.
 
-Launch the enhanced application:
+## Install and run
 
-```bash
-python ez_fair.py
-```
+`python -m venv .venv`, install `requirements.txt`, then `python ez_fair.py` for the enhanced desktop application. The optional Tk workbench also lives in `polished_gui.py`. Run `python -m pytest -q` for automated checks. [Full instructions and drawing-testing walkthrough](docs/archive/README_2026-10-20_before_refresh.md).
 
-The original MVP launcher remains available as:
+## Known engineering limits
 
-```bash
-python ez_fai_builder.py
-```
+- OCR and GD&T candidates may be incomplete or incorrect; humans must review characteristics, tolerance interpretation, and file-to-balloon correspondence.
+- Extracted inspection proposals contain no measured values or implicit passes. The controlled file integration is not yet an authenticated shared-user release screen.
+- Current automated tests do not constitute a broad representative customer-drawing accuracy benchmark.
 
-## Extraction behavior
+## Next priorities
 
-1. EZ FAIR runs the existing vector PDF extraction engine.
-2. It scans the lower-right title-block area and applies detected drawing defaults when enabled.
-3. If vector extraction returns zero dimensions, it renders each page locally and runs Tesseract OCR.
-4. It performs a GD&T pass for feature-control-frame symbols and common extracted text equivalents.
-5. Every result remains editable in the review table before export.
+Build a representative held-out drawing set, score recall/false positives and source-to-balloon traceability, and improve the controlled-review UX.
 
-Default settings are saved locally in `~/.ez_fair_settings.json`.
+## Documentation
 
-## Local real drawing test
+- [Cross-app FAI test](https://github.com/danieloculus0-bot/Axiom_Beta/blob/main/integration_tests/test_controlled_fai_wiring.py)
+- [Local drawing test runner](run_local_test.ps1)
+- [**Full earlier README: setup, feature history, experiments and rationale**](docs/archive/README_2026-10-20_before_refresh.md)
 
-Use this workflow for real customer drawings and corrected FAI templates without committing proprietary files.
-
-1. Put exactly one real blueprint PDF and exactly one FAI Excel template (`.xlsx` or `.xlsm`) in `local_inputs/`.
-2. Run:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\run_local_test.ps1
-```
-
-3. Review the generated files in `local_outputs/`.
-4. Do not commit `local_inputs/` or `local_outputs/`; they are intentionally ignored.
-
-## Notes
-
-This remains a review-assisted extraction engine. OCR and GD&T recognition can produce false positives on degraded scans or proprietary CAD fonts, so the editable review table remains part of the controlled workflow.
-
-## Repository audit note (2026-10-20)
-
-**Status: assisted inspection-document preparation, not hands-free drawing interpretation.** The repository contains PDF extraction, OCR fallback, title-block tolerance logic, GD&T heuristics, editable review and workbook export. The `EZ-FAIR tests` workflow **passed again on October 20** after the October 16 changes, verifying its current automated test scope. That CI result does not replace real drawing validation. Before shop use, validate rotated pages, drawing-scale artifacts, characteristic grouping, source-to-balloon correspondence, and the actual controlled FAI template. The application must preserve human review of ambiguous characteristics.
-
-EZ-FAIR owns drawing extraction and FAI creation; [ForgeVault](https://github.com/danieloculus0-bot/ForgeVault) owns controlled file revisions, and [EZ-FEA](https://github.com/danieloculus0-bot/EZ-FEA) owns physics. Their files are not automatically linked yet. [Portfolio audit](https://github.com/danieloculus0-bot/Axiom_Beta/blob/main/docs/PORTFOLIO_AUDIT_2026-10-20.md).
-
-## BEAN Gothic Lime desktop theme
-
-The `polished_gui.py` desktop workbench uses the suite's charcoal/steel/electric-lime palette: background `#0F1113`, panel `#1A1D20`, data surface `#22282A`, text `#E6EAE7` and primary action `#79DE4B`. The editable characteristics grid remains dense, with lime selection/focus and dark cells rather than the old bright white table. Color changes **do not** affect the extractor, tolerance math, FAI export or approval state. Controlled ForgeVault imports remain a separate Python integration interface; the desktop file-selection workflow has not been silently replaced with an unverified online API.
+Historical details are archived, not discarded. Unverified planned features are not silently described as shipped.
