@@ -39,13 +39,13 @@ from local_test_runner import write_extraction_summary
 
 APP_NAME = "EZ-FAIR"
 APP_SUBTITLE = "First Article Inspection Builder"
-APP_BG = "#101820"
-PANEL_BG = "#17232f"
-CARD_BG = "#1d2c3a"
-TEXT = "#edf4ff"
-MUTED = "#9fb2c8"
-ACCENT = "#0b3a75"
-ACCENT_2 = "#1f6fbc"
+APP_BG = "#0F1113"
+PANEL_BG = "#1A1D20"
+CARD_BG = "#22282A"
+TEXT = "#E6EAE7"
+MUTED = "#9FAEB0"
+ACCENT = "#79DE4B"
+ACCENT_2 = "#52A86A"
 
 
 class EzFairApp(tk.Tk):
@@ -96,12 +96,15 @@ class EzFairApp(tk.Tk):
         style.configure("Body.TLabel", background=PANEL_BG, foreground=TEXT, font=("Segoe UI", 9))
         style.configure("Muted.TLabel", background=PANEL_BG, foreground=MUTED, font=("Segoe UI", 9))
         style.configure("Status.TLabel", background=APP_BG, foreground=MUTED, font=("Segoe UI", 9))
-        style.configure("TButton", font=("Segoe UI", 9), padding=(12, 7))
+        style.configure("TButton", background=CARD_BG, foreground=TEXT, font=("Segoe UI", 9), padding=(12, 7))
+        style.map("TButton", background=[("active", PANEL_BG)], foreground=[("active", TEXT)])
+        style.configure("TEntry", fieldbackground=CARD_BG, foreground=TEXT, insertcolor=ACCENT)
+        style.configure("TCombobox", fieldbackground=CARD_BG, foreground=TEXT, selectbackground=ACCENT_2, selectforeground="#0F160D")
         style.configure("Accent.TButton", font=("Segoe UI", 9, "bold"), padding=(14, 8))
-        style.map("Accent.TButton", background=[("active", ACCENT_2), ("!disabled", ACCENT)], foreground=[("!disabled", "white")])
-        style.configure("Treeview", background="#f8fbff", foreground="#18212b", fieldbackground="#f8fbff", rowheight=25, font=("Segoe UI", 9))
-        style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"), padding=(6, 6))
-        style.map("Treeview", background=[("selected", ACCENT_2)], foreground=[("selected", "white")])
+        style.map("Accent.TButton", background=[("active", ACCENT_2), ("!disabled", ACCENT)], foreground=[("!disabled", "#0F160D")])
+        style.configure("Treeview", background=CARD_BG, foreground=TEXT, fieldbackground=CARD_BG, rowheight=27, font=("Segoe UI", 9))
+        style.configure("Treeview.Heading", background=PANEL_BG, foreground=TEXT, font=("Segoe UI", 9, "bold"), padding=(6, 6))
+        style.map("Treeview", background=[("selected", ACCENT_2)], foreground=[("selected", "#0F160D")])
 
     def _build_ui(self) -> None:
         root = ttk.Frame(self, style="Root.TFrame", padding=18)
@@ -159,12 +162,12 @@ class EzFairApp(tk.Tk):
         side.pack(side=tk.RIGHT, fill=tk.Y, padx=(12, 0))
         side.pack_propagate(False)
         ttk.Label(side, text="Run Log", style="PanelTitle.TLabel").pack(anchor="w")
-        self.log_box = tk.Text(side, height=20, bg="#0b1118", fg="#d7e6f8", insertbackground="white", relief=tk.FLAT, wrap=tk.WORD, font=("Consolas", 9))
+        self.log_box = tk.Text(side, height=20, bg=APP_BG, fg=TEXT, insertbackground=ACCENT, relief=tk.FLAT, wrap=tk.WORD, font=("Consolas", 9))
         self.log_box.pack(fill=tk.BOTH, expand=True, pady=(10, 10))
         self.log_box.insert(tk.END, "EZ-FAIR ready.\n")
         self.log_box.configure(state=tk.DISABLED)
         ttk.Label(side, text="Outputs", style="PanelTitle.TLabel").pack(anchor="w", pady=(4, 0))
-        self.output_list = tk.Listbox(side, height=5, bg="#0b1118", fg="#d7e6f8", selectbackground=ACCENT_2, relief=tk.FLAT, font=("Segoe UI", 9))
+        self.output_list = tk.Listbox(side, height=5, bg=APP_BG, fg=TEXT, selectbackground=ACCENT_2, relief=tk.FLAT, font=("Segoe UI", 9))
         self.output_list.pack(fill=tk.X, pady=(8, 0))
         self.output_list.bind("<Double-1>", self.open_selected_output)
 
