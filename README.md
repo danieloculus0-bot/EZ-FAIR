@@ -67,3 +67,9 @@ powershell -ExecutionPolicy Bypass -File .\run_local_test.ps1
 ## Notes
 
 This remains a review-assisted extraction engine. OCR and GD&T recognition can produce false positives on degraded scans or proprietary CAD fonts, so the editable review table remains part of the controlled workflow.
+
+## Repository audit note (2026-10-20)
+
+**Status: assisted inspection-document preparation, not hands-free drawing interpretation.** The repository contains PDF extraction, OCR fallback, title-block tolerance logic, GD&T heuristics, editable review and workbook export. The latest visible successful `EZ-FAIR tests` workflow ran on September 25, **before the October 16 source changes**. Do not imply the current checkout is CI-verified without a fresh run. Before shop use, validate rotated pages, drawing-scale artifacts, characteristic grouping, source-to-balloon correspondence, and the actual controlled FAI template. The application must preserve human review of ambiguous characteristics.
+
+EZ-FAIR owns drawing extraction and FAI creation; [ForgeVault](https://github.com/danieloculus0-bot/ForgeVault) owns controlled file revisions, and [EZ-FEA](https://github.com/danieloculus0-bot/EZ-FEA) owns physics. Their files are not automatically linked yet. [Portfolio audit](https://github.com/danieloculus0-bot/Axiom_Beta/blob/main/docs/PORTFOLIO_AUDIT_2026-10-20.md).
