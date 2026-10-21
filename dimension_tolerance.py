@@ -76,3 +76,16 @@ def bind_tolerances(line: str, dimension_pattern: re.Pattern[str]) -> list[Bound
         else:
             output.append(BoundDimension(m, "", "default"))
     return output
+
+
+def tolerance_for_candidate(
+    line: str, dimension_pattern: re.Pattern[str], number_text: str
+) -> tuple[str, str]:
+    """Bind a word-extracted nominal; never guess between repeated same values."""
+    matching = [
+        bound for bound in bind_tolerances(line, dimension_pattern)
+        if bound.match.group("num") == number_text
+    ]
+    if len(matching) != 1:
+        return "", "review_required"
+    return matching[0].context, matching[0].status
