@@ -8,6 +8,7 @@ from typing import Any
 import fitz
 
 import extractor_engine as base
+from dimension_tolerance import bind_tolerances
 from extractor_engine import Characteristic, SkippedCandidate
 
 TITLE_SKIP = re.compile(r"\b(?:UNLESS OTHERWISE|DECIMAL|FRACTION|ANGULAR|PROPRIETARY|TITLE|DWG|DRAWN|DATE|MATERIAL|THICKNESS|SCALE|WEIGHT|SHEET|REV|INITIALS|TOLERANCE|DO NOT SCALE)\b", re.I)
@@ -109,7 +110,7 @@ def _title_noise(page: fitz.Page, rect: fitz.Rect, line: str, near: str) -> bool
     return False
 
 
-def _add(chars: list[Characteristic], skipped: list[SkippedCandidate], page: fitz.Page, page_i: int, raw: str, value: str, rect: fitz.Rect, line: str, near: str, comment: str, meta: dict[str, Any], forced_type: str | None = None) -> None:
+def _add(chars: list[Characteristic], skipped: list[SkippedCandidate], page: fitz.Page, page_i: int, raw: str, value: str, rect: fitz.Rect, line: str, near: str, comment: str, meta: dict[str, Any], forced_type: str | None = None, explicit_tolerance: str = "", tolerance_status: str = "default") -> None:
     try:
         nominal = float(value)
     except Exception:
@@ -129,9 +130,9 @@ def _add(chars: list[Characteristic], skipped: list[SkippedCandidate], page: fit
     if _duplicate(chars, page_i, typ, nominal, rect, line):
         base._record_skip(skipped, page_i, raw, "duplicate candidate at same location", rect, near)
         return
-    lsl, usl = base.calculate_tolerance_limits(nominal, value, typ, f"{line} {near}")
+    lsl, usl = base.calculate_tolerance_limits(nominal, value, typ, explicit_tolerance)
     m = dict(meta)
-    m.update({"source": line, "nearby": near})
+    m.update({"source": line, "nearby": near, "tolerance_status": tolerance_status, "tolerance_review_required": tolerance_status == "review_required"})
     chars.append(Characteristic(len(chars) + 1, base._reference_location(page, rect, page_i), nominal, lsl, usl, typ, page_i, (rect.x0, rect.y0, rect.x1, rect.y1), raw, base.DEFAULT_TOOLING.get(typ, "CALIPER"), comment, "", m))
 
 
@@ -156,7 +157,8 @@ def extract_pdf_dimensions(pdf_path: str | Path) -> list[Characteristic]:
                 if line_rect.y0 > page.rect.height * 0.70 and TITLE_SKIP.search(line):
                     base._record_skip(skipped, page_i, line, "title block line ignored", line_rect, line)
                     continue
-                for match in DIM_RE.finditer(line):
+                for binding in bind_tolerances(line, DIM_RE):
+                    match = binding.match
                     raw = _decorated_raw(line, match)
                     value = match.group("num")
                     if base._is_count_prefix(line, match):
@@ -170,15 +172,16 @@ def extract_pdf_dimensions(pdf_path: str | Path) -> list[Characteristic]:
                     rect = base._match_rect_from_words(line, line_rect, words, match)
                     near = base._nearby_text(page, rect)
                     forced_type = _type_for_match(raw, line, near, match)
-                    _add(chars, skipped, page, page_i, raw, value, rect, line, near, comment, meta, forced_type)
+                    _add(chars, skipped, page, page_i, raw, value, rect, line, near, comment, meta, forced_type, binding.context, binding.status)
             if len(chars) == before_count:
                 for line, line_rect in base._iter_text_spans(page):
-                    for match in DIM_RE.finditer(line):
+                    for binding in bind_tolerances(line, DIM_RE):
+                        match = binding.match
                         raw = _decorated_raw(line, match)
                         rect = base._match_rect_from_words(line, line_rect, [], match)
                         near = base._nearby_text(page, rect)
                         forced_type = _type_for_match(raw, line, near, match)
-                        _add(chars, skipped, page, page_i, raw, match.group("num"), rect, line, near, comment, meta, forced_type)
+                        _add(chars, skipped, page, page_i, raw, match.group("num"), rect, line, near, comment, meta, forced_type, binding.context, binding.status)
     for i, c in enumerate(chars, 1):
         c.char_number = i
     base.LAST_EXTRACTION_DEBUG["skipped"] = skipped
