@@ -1,0 +1,49 @@
+name: BEAN EZ-FAIR 3000-case learning ledger
+on:
+  push:
+    branches:
+      - experiment/bean-3000-extraction-ledger-20261020
+    paths:
+      - 'experiments/bean_extraction_lab/**'
+      - '.github/workflows/bean-ezfair-lab030.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'experiments/bean_extraction_lab/**'
+      - '.github/workflows/bean-ezfair-lab030.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  evaluate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install vector PDF extraction dependency
+        run: python -m pip install pymupdf
+      - name: Compile benchmark
+        run: python -m py_compile extractor_engine.py experiments/bean_extraction_lab/lab030.py
+      - name: Run targeted unit contracts
+        run: python -m unittest discover -s experiments/bean_extraction_lab -p test_lab030.py -v
+      - name: Train BEAN on 2000 cases and evaluate frozen 1000-case holdout
+        run: python experiments/bean_extraction_lab/lab030.py --output lab030-evidence
+      - name: Independently replay all 3000 cases and scoreboard
+        run: python experiments/bean_extraction_lab/lab030.py --output lab030-evidence --verify
+      - name: Archive full 3000-case evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ezfair-bean-lab030-${{ matrix.os }}
+          path: |
+            lab030-evidence/events.jsonl.gz
+            lab030-evidence/q-policy.json.gz
+            lab030-evidence/scoreboard.json
+          if-no-files-found: ignore
