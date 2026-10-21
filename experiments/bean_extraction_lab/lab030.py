@@ -18,7 +18,7 @@ import fitz
 from extractor_engine import TITLE_BLOCK_DEFAULTS, extract_pdf_dimensions
 
 ACTIONS = ("existing", "scoped", "review")
-SCENARIOS = ("pair", "asymmetric", "symmetric", "defaults", "admin", "reference", "unresolved")
+SCENARIOS = ("pair", "asymmetric", "symmetric", "defaults", "admin", "reference", "unresolved", "radius", "unlabeled")
 NUM = r"(?:\d+\.\d+|\.\d+|\d+)"
 FEATURE = re.compile(r"\b(?:WIDTH|LENGTH|DEPTH|HEIGHT)\s+(?P<nom>" + NUM + r")(?P<tol>\s*\+\s*(?P<plus>" + NUM + r")\s*/\s*-\s*(?P<minus>" + NUM + r")|\s*(?:±|\+/-)\s*(?P<sym>" + NUM + r"))?", re.I)
 
@@ -51,9 +51,16 @@ def fixture(i, seed):
     elif scenario=="reference":
         line=f"REF ({x:.3f})"
         expected=[]
-    else:
+    elif scenario=="unresolved":
         line=f"SIZE {x:.3f} TOL SEE NOTE 7"
         expected=[]
+    elif scenario=="radius":
+        line=f"R{x:.3f}"
+        expected=[triple(x,x-.005,x+.005)]
+    else:
+        xx=round(x,2)
+        line=f"{xx:.2f} X {y:.3f}"
+        expected=[triple(xx,xx-.02,xx+.02),triple(y,y-.005,y+.005)]
     return {"id":f"EFC-{i:04d}","line":line,"scenario":scenario,
             "expected":expected,"needs_review":scenario=="unresolved"}
 
@@ -149,7 +156,12 @@ def execute(output,seed=20261020):
     for index,case in enumerate(cases):
         learn=index<training
         state=features(case["line"])
-        score_seen=sha(encode(agent.scoreboard()))
+        predecision = {
+            "games": agent.games, "exact": agent.correct,
+            "reward_total": round(agent.reward_total,3),
+            "current_q": list(agent.q.get(state,[0.]*len(ACTIONS))),
+        }
+        score_seen=sha(encode(predecision))
         action=agent.choose(state,.20 if learn else 0.)
         proposed,ask_review=scoped(case["line"])
         strategies={"existing":(baseline[case["id"]],False),"scoped":(proposed,ask_review),
@@ -166,8 +178,10 @@ def execute(output,seed=20261020):
         events.append({"id":case["id"],"cohort":"training" if learn else "holdout",
                        "source_text":case["line"],"scenario":case["scenario"],
                        "oracle":case["expected"],"needs_review":case["needs_review"],
-                       "q_state":state,"scoreboard_seen_sha256":score_seen,
-                       "chosen_action":chosen,**attempts,"bean":attempts[chosen]})
+                       "q_state":state,"scoreboard_seen":predecision,
+                       "scoreboard_seen_sha256":score_seen,
+                       "chosen_action":chosen,"q_after":list(agent.q[state]),
+                       **attempts,"bean":attempts[chosen]})
     policy=encode(agent.scoreboard())
     output.mkdir(parents=True,exist_ok=True)
     (output/"q-policy.json.gz").write_bytes(gzip.compress(policy,mtime=0))
@@ -195,12 +209,36 @@ def verify(folder):
     if sha(raw)!=report["event_bytes_sha256"]:raise ValueError("bad content hash")
     rows=[json.loads(line) for line in raw.splitlines()]
     if len(rows)!=3000:raise ValueError("missing test results")
-    for row in rows:
+    state_q={}
+    observed_games=observed_exact=0
+    observed_reward=0.0
+    for i,row in enumerate(rows):
+        original=fixture(i,report["seed"]+(0 if i<2000 else 700000))
+        if (row["id"]!=original["id"] or row["source_text"]!=original["line"]
+            or row["oracle"]!=original["expected"] or row["needs_review"]!=original["needs_review"]
+            or row["scenario"]!=original["scenario"]):
+            raise ValueError("incorrect fixture truth or input: "+row["id"])
+        qstate=row["q_state"]
+        if qstate!=features(row["source_text"]):
+            raise ValueError("incorrect state: "+row["id"])
+        existing=state_q.setdefault(qstate,[0.]*len(ACTIONS))
+        scoreboard={"games":observed_games,"exact":observed_exact,
+                    "reward_total":round(observed_reward,3),"current_q":list(existing)}
+        if row["scoreboard_seen"]!=scoreboard or row["scoreboard_seen_sha256"]!=sha(encode(scoreboard)):
+            raise ValueError("invalid pre-decision scoreboard: "+row["id"])
         for action in ("existing","scoped","review"):
             candidate=row[action]
             if candidate["score"]!=evaluate(row["oracle"],candidate["prediction"],row["needs_review"],candidate["score"]["reviewed"]):
                 raise ValueError("tampered result: "+row["id"])
         if row["bean"]!=row[row["chosen_action"]]:raise ValueError("wrong BEAN score")
+        if i<2000:
+            a=ACTIONS.index(row["chosen_action"])
+            reward=row["bean"]["score"]["reward"]
+            existing[a]=round(existing[a]+.23*(reward-existing[a]),8)
+            observed_games+=1
+            observed_exact+=int(row["bean"]["score"]["exact"])
+            observed_reward+=reward
+        if row["q_after"]!=existing:raise ValueError("Q-update replay diverged: "+row["id"])
     for cohort,name in ((rows[:2000],"train_scores"),(rows[2000:],"holdout_scores")):
         for action in ("existing","scoped","review","bean"):
             if total(cohort,action)!=report[name][action]:raise ValueError("tampered summary")
