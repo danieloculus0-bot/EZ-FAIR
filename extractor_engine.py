@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import fitz  # PyMuPDF
+from tolerance_association import associate, nominal_matches, ToleranceAssociation
 
 TITLE_BLOCK_DEFAULTS = {
     "two_place": 0.02,
@@ -272,6 +273,7 @@ def _add_characteristic(
     line_text: str,
     nearby: str,
     default_comment: str,
+    association: ToleranceAssociation | None = None,
 ) -> None:
     raw = raw.replace("º", "°").replace("⌀", "Ø").strip()
     if raw.upper().startswith("R") and not raw.startswith("R"):
@@ -297,7 +299,13 @@ def _add_characteristic(
         _record_skip(skipped, page_index, raw, "duplicate candidate at same location", rect, nearby)
         return
     seen.add(key)
-    lsl, usl = calculate_tolerance_limits(nominal, value_text, dim_type, line_text)
+    if association is not None and association.source == "explicit":
+        lsl, usl = association.lower, association.upper
+    elif association is not None and association.source == "unresolved":
+        lsl, usl = None, None
+        default_comment = (default_comment + " | " if default_comment else "") + "REVIEW REQUIRED: " + association.reason
+    else:
+        lsl, usl = calculate_tolerance_limits(nominal, value_text, dim_type, "")
     characteristics.append(
         Characteristic(
             char_number=len(characteristics) + 1,
@@ -311,7 +319,10 @@ def _add_characteristic(
             raw_text=raw,
             tooling=DEFAULT_TOOLING.get(dim_type, "CALIPER"),
             comments=default_comment,
-            metadata={"source": line_text, "nearby": nearby, "drawing_name": ""},
+            metadata={"source": line_text, "nearby": nearby, "drawing_name": "",
+                      "tolerance_source": association.source if association else "default",
+                      "review_required": bool(association and association.source == "unresolved"),
+                      "tolerance_warning": association.reason if association else ""},
         )
     )
 
@@ -329,7 +340,8 @@ def _extract_matches_from_line(
 ) -> None:
     if not line_text.strip():
         return
-    for match in DIMENSION_PATTERN.finditer(line_text):
+    nominals = nominal_matches(line_text, DIMENSION_PATTERN, TOLERANCE_PATTERN)
+    for match in nominals:
         raw = match.group(0).strip()
         value_text = match.group("num")
         if _is_count_prefix(line_text, match):
@@ -344,7 +356,8 @@ def _extract_matches_from_line(
             continue
         rect = _match_rect_from_words(line_text, line_rect, words, match)
         nearby = _nearby_text(page, rect)
-        _add_characteristic(characteristics, seen, skipped, page, page_index, raw, value_text, rect, line_text, nearby, default_comment)
+        association = associate(line_text, match, nominals, TOLERANCE_PATTERN, float(value_text))
+        _add_characteristic(characteristics, seen, skipped, page, page_index, raw, value_text, rect, line_text, nearby, default_comment, association)
 
     # Fractional fabrication notes occasionally show up as 3/16 or 1/4. Keep
     # them only when the line clearly reads dimensional.
