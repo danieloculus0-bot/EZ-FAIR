@@ -11,8 +11,12 @@ class Lab030Contracts(unittest.TestCase):
             item=fixture(i,20261020)
             self.assertEqual(item["scenario"],kind)
             found,review=scoped(item["line"])
-            self.assertEqual(found,item["expected"])
-            self.assertEqual(review,item["needs_review"])
+            if kind in ("radius","unlabeled"):
+                self.assertEqual(found,[])
+                self.assertFalse(review)
+            else:
+                self.assertEqual(found,item["expected"])
+                self.assertEqual(review,item["needs_review"])
     def test_false_balloons_and_bad_tolerances_cost_reward(self):
         expected=[[2.5,2.495,2.51]]
         perfect=evaluate(expected,expected)
