@@ -24,6 +24,8 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -39,6 +41,22 @@ jobs:
         run: python experiments/bean_extraction_lab/lab030.py --output lab030-evidence
       - name: Independently replay all 3000 cases and scoreboard
         run: python experiments/bean_extraction_lab/lab030.py --output lab030-evidence --verify
+      - name: Preserve full results in versioned GitHub research ledger
+        if: github.event_name == 'push' && github.ref == 'refs/heads/experiment/bean-3000-extraction-ledger-20261020' && runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="research/bean_ezfair_lab030/${GITHUB_SHA}"
+          mkdir -p "$target"
+          cp lab030-evidence/events.jsonl.gz "$target/events.jsonl.gz"
+          cp lab030-evidence/q-policy.json.gz "$target/q-policy.json.gz"
+          cp lab030-evidence/scoreboard.json "$target/scoreboard.json"
+          printf 'Synthetic vector PDF fixture lab only; source revision: %s\nAll 3000 original predictions, rewards, policy states, and independent scores are in the gzipped archive. This does not verify real drawing performance or neural model learning.\n' "$GITHUB_SHA" > "$target/README.txt"
+          git config user.name "bean-research-ledger"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f "$target"
+          git commit -m "research: retain all 3000 Lab030 case receipts for ${GITHUB_SHA}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
       - name: Archive full 3000-case evidence
         if: always()
         uses: actions/upload-artifact@v4
