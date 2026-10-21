@@ -1,10 +1,14 @@
 # EZ-FAIR
 
-Desktop-assisted First Article Inspection drawing extraction and FAI document builder. It produces reviewable candidate characteristics from PDFs, not automatically certified measurements.
+**Working Python desktop application** for First Article Inspection drawing extraction and FAI document building.
+
+**[Try the interactive EZ-FAIR demo](https://danieloculus0-bot.github.io/BEAN/portfolio/ez-fair/)** · **[View The Workshop](https://danieloculus0-bot.github.io/BEAN/portfolio/)**
+
+The public demo provides a synthetic drawing walkthrough; the real PDF extraction and FAI document generation run in the desktop Python application. It produces reviewable candidate characteristics from PDFs, not automatically certified measurements.
 
 ## Current build state
 
-**Reviewed:** 2026-10-20 · **Inspected main:** `223ad25777d6` · **Stage:** experimental/beta; individual workflow evidence below.
+**Reviewed:** 2026-10-20 · **Inspected main:** `223ad25777d6` · **Stage:** working desktop application under active engineering refinement; individual workflow evidence below.
 
 - [EZ-FAIR tests](https://github.com/danieloculus0-bot/EZ-FAIR/actions/runs/39502697068) — **Passed** at inspected `main`.
 
