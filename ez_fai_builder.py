@@ -206,7 +206,9 @@ def _noise_reason(text: str, context: str) -> str:
     if IGNORE_CONTEXT_PATTERN.search(combined) and not DIMENSIONAL_NOTE_PATTERN.search(combined):
         return "title block / revision / non-dimensional context"
     compact = re.sub(r"[\s\-().]", "", combined)
-    digits = re.sub(r"\D", "", combined)
+    # Reject long identifiers based on the candidate itself. Counting nearby
+    # dimensions and tolerances together wrongly rejects entire drawing lines.
+    digits = re.sub(r"\D", "", text)
     if len(digits) >= 7 and not DIMENSIONAL_NOTE_PATTERN.search(combined):
         return "long numeric identifier, phone/date/drawing-number-like text"
     if re.search(r"\b(?:PO|PURCHASE\s*ORDER|ORDER\s*NO|INSPECTOR|ITEM\s*NO|REASON)\b", combined, re.I):
