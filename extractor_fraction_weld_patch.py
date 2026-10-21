@@ -120,14 +120,18 @@ def _add_fraction(chars: list[Characteristic], skipped: list[SkippedCandidate], 
     # Fractions are commonly shop dimensions. Use a visible guessed fractional tolerance and flag it for review.
     explicit = base.TOLERANCE_PATTERN.search(line)
     if explicit:
-        lsl, usl = base.calculate_tolerance_limits(value, f"{value:.4f}", typ, line)
-        extra_comment = comment
+        # Fraction and explicit deviation geometry is not resolved by the fraction
+        # parser. Preserve uncertainty instead of borrowing another nominal's tolerance.
+        lsl, usl = None, None
+        extra_comment = (comment + " | " if comment else "") + "REVIEW REQUIRED: fraction tolerance association"
     else:
         tol = 1 / 32
         lsl, usl = round(value - tol, 6), round(value + tol, 6)
         extra_comment = (comment + " | " if comment else "") + "FRACTION - VERIFY TOLERANCE"
     m = dict(meta)
-    m.update({"source": line, "nearby": near, "fraction_value": raw})
+    m.update({"source": line, "nearby": near, "fraction_value": raw,
+              "tolerance_source": "unresolved" if explicit else "default",
+              "review_required": True})
     chars.append(Characteristic(len(chars) + 1, base._reference_location(page, rect, page_i), value, lsl, usl, typ, page_i, (rect.x0, rect.y0, rect.x1, rect.y1), raw, base.DEFAULT_TOOLING.get(typ, "CALIPER"), extra_comment, "", m))
 
 
