@@ -11,6 +11,7 @@ import copy
 import re
 import tkinter as tk
 from dataclasses import dataclass, field
+from dimension_tolerance import tolerance_for_candidate
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Iterable
@@ -205,7 +206,9 @@ def _noise_reason(text: str, context: str) -> str:
     if IGNORE_CONTEXT_PATTERN.search(combined) and not DIMENSIONAL_NOTE_PATTERN.search(combined):
         return "title block / revision / non-dimensional context"
     compact = re.sub(r"[\s\-().]", "", combined)
-    digits = re.sub(r"\D", "", combined)
+    # Reject long identifiers based on the candidate itself. Counting nearby
+    # dimensions and tolerances together wrongly rejects entire drawing lines.
+    digits = re.sub(r"\D", "", text)
     if len(digits) >= 7 and not DIMENSIONAL_NOTE_PATTERN.search(combined):
         return "long numeric identifier, phone/date/drawing-number-like text"
     if re.search(r"\b(?:PO|PURCHASE\s*ORDER|ORDER\s*NO|INSPECTOR|ITEM\s*NO|REASON)\b", combined, re.I):
@@ -315,7 +318,8 @@ def extract_pdf_dimensions(pdf_path: str | Path) -> list[Characteristic]:
                     continue
                 seen.add(coarse_key)
 
-                lsl, usl = calculate_tolerance_limits(nominal, number_text, dim_type, line_text)
+                tol_context, tolerance_status = tolerance_for_candidate(line_text, DIMENSION_PATTERN, number_text)
+                lsl, usl = calculate_tolerance_limits(nominal, number_text, dim_type, tol_context)
                 characteristics.append(
                     Characteristic(
                         char_number=len(characteristics) + 1,
@@ -329,7 +333,7 @@ def extract_pdf_dimensions(pdf_path: str | Path) -> list[Characteristic]:
                         raw_text=raw,
                         tooling=DEFAULT_TOOLING.get(dim_type, ""),
                         comments=default_comment,
-                        metadata={"source": line_text or candidate_text, "nearby": nearby, "drawing_name": pdf_path.stem},
+                        metadata={"source": line_text or candidate_text, "nearby": nearby, "drawing_name": pdf_path.stem, "tolerance_status": tolerance_status, "tolerance_review_required": tolerance_status == "review_required"},
                     )
                 )
 
