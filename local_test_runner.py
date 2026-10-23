@@ -25,6 +25,9 @@ DEBUG_REPORT_FILENAME = "EZ_FAI_DEBUG_REPORT.txt"
 
 
 def _has_explicit_tolerance(characteristic: Characteristic) -> bool:
+    status = characteristic.metadata.get("tolerance_status")
+    if status is not None:
+        return status == "explicit"
     context = " ".join(str(characteristic.metadata.get(key, "")) for key in ("source", "nearby"))
     return bool(TOLERANCE_PATTERN.search(context))
 
