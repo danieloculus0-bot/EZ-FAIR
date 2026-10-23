@@ -97,6 +97,22 @@ def _row_values(characteristic: Any) -> dict[str, Any]:
     }
 
 
+def _tolerance_needs_review(characteristic: Any, values: dict[str, Any]) -> bool:
+    """A flagged or missing tolerance must never be silently formula-passable.
+
+    Ambiguous explicit tolerances can carry numerical *default* limits, so
+    checking for missing limits alone is insufficient after positional binding.
+    """
+    metadata = _characteristic_metadata(characteristic)
+    return (
+        values["Requirement LSL"] is None
+        or values["Requirement USL"] is None
+        or metadata.get("tolerance_review_required") is True
+        or metadata.get("review_required") is True
+        or metadata.get("tolerance_status") == "review_required"
+    )
+
+
 def _pick_sheet(wb):
     return wb[EXACT_R3_SHEET] if EXACT_R3_SHEET in wb.sheetnames else wb.active
 
@@ -238,7 +254,10 @@ def _fill_r3_form(ws, characteristics: list[Any]) -> int:
         ws.cell(row=row, column=R3_COLUMNS["Requirement USL"]).value = values["Requirement USL"]
         ws.cell(row=row, column=R3_COLUMNS["Type"]).value = values["Type"]
         ws.cell(row=row, column=R3_COLUMNS["EZ Fabricating Actual"]).value = None
-        ws.cell(row=row, column=R3_COLUMNS["In Spec"]).value = _r3_inclusive_formula(row)
+        ws.cell(row=row, column=R3_COLUMNS["In Spec"]).value = (
+            "REVIEW REQUIRED" if _tolerance_needs_review(characteristic, values)
+            else _r3_inclusive_formula(row)
+        )
         ws.cell(row=row, column=R3_COLUMNS["Tooling Used"]).value = values["Tooling Used"]
         ws.cell(row=row, column=R3_COLUMNS["Comments"]).value = values["Comments"]
     _add_list_validation(ws, f"F{R3_START_ROW}:F{end_row}", "'CHARACTERISTICS'!$A$1:$A$33")
@@ -299,7 +318,10 @@ def _fill_generic(ws, characteristics: list[Any]) -> int:
         lsl_col = get_column_letter(columns["Requirement LSL"])
         usl_col = get_column_letter(columns["Requirement USL"])
         in_spec_col = columns["In Spec"]
-        ws.cell(row=row, column=in_spec_col).value = f'=IF({actual_col}{row}="","",IF(AND({actual_col}{row}>={lsl_col}{row},{actual_col}{row}<={usl_col}{row}),"X",""))'
+        ws.cell(row=row, column=in_spec_col).value = (
+            "REVIEW REQUIRED" if _tolerance_needs_review(characteristic, values)
+            else f'=IF({actual_col}{row}="","",IF(AND({actual_col}{row}>={lsl_col}{row},{actual_col}{row}<={usl_col}{row}),"X",""))'
+        )
     return len(characteristics)
 
 
