@@ -17,6 +17,7 @@ from typing import Any
 import fitz
 
 import ez_fai_builder as base
+from dimension_tolerance import tolerance_for_candidate
 
 try:
     import pytesseract
@@ -163,7 +164,8 @@ def _extract_from_ocr(pdf_path: Path, settings: ExtractionSettings) -> list[base
                 if key in seen:
                     continue
                 seen.add(key)
-                lsl, usl = base.calculate_tolerance_limits(nominal, number_text, dim_type, line_text)
+                tol_context, tolerance_status = tolerance_for_candidate(line_text, base.DIMENSION_PATTERN, number_text)
+                lsl, usl = base.calculate_tolerance_limits(nominal, number_text, dim_type, tol_context)
                 characteristics.append(base.Characteristic(
                     char_number=len(characteristics) + 1,
                     reference_location=base._reference_location(page, candidate_rect, page_index),
@@ -175,7 +177,7 @@ def _extract_from_ocr(pdf_path: Path, settings: ExtractionSettings) -> list[base
                     rect=(candidate_rect.x0, candidate_rect.y0, candidate_rect.x1, candidate_rect.y1),
                     raw_text=raw,
                     tooling=base.DEFAULT_TOOLING.get(dim_type, ""),
-                    metadata={"source": line_text or candidate_text, "nearby": nearby, "drawing_name": pdf_path.stem, "extraction": "OCR"},
+                    metadata={"source": line_text or candidate_text, "nearby": nearby, "drawing_name": pdf_path.stem, "extraction": "OCR", "tolerance_status": tolerance_status, "tolerance_review_required": tolerance_status == "review_required"},
                 ))
     base.LAST_EXTRACTION_DEBUG["skipped"] = skipped
     return characteristics
