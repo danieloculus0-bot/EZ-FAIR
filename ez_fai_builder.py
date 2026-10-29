@@ -40,7 +40,7 @@ FAI_HEADERS = [
     "Requirement Nominal",
     "Requirement USL",
     "Type",
-    "company Actual",
+    "Inspection Actual",
     "In Spec",
     "Tooling Used",
     "Comments",
@@ -54,7 +54,7 @@ HEADER_ALIASES = {
     "Requirement Nominal": ["requirement nominal", "nominal", "requirement", "dimension", "specified requirement"],
     "Requirement USL": ["requirement usl", "usl", "upper spec limit", "upper limit", "maximum", "max"],
     "Type": ["type", "characteristic type", "dim type"],
-    "company Actual": ["company actual", "actual", "actual result", "measured actual", "measurement"],
+    "Inspection Actual": ["Inspection Actual", "actual", "actual result", "measured actual", "measurement"],
     "In Spec": ["in spec", "inspec", "pass fail", "pass/fail", "accept", "result"],
     "Tooling Used": ["tooling used", "tooling", "tool used", "gage", "gauge", "inspection tool"],
     "Comments": ["comments", "comment", "notes", "remark", "remarks"],
@@ -100,7 +100,7 @@ class Characteristic:
             "Requirement Nominal": self.nominal,
             "Requirement USL": self.usl,
             "Type": self.type,
-            "company Actual": self.actual,
+            "Inspection Actual": self.actual,
             "Tooling Used": self.tooling,
             "Comments": self.comments,
         }
@@ -470,7 +470,7 @@ def _find_header_row(ws) -> tuple[int, dict[str, int]]:
         if len(mapping) > len(best_mapping):
             best_row, best_mapping = row, mapping
 
-    # A corrected company template should already contain most row headers. For
+    # A corrected generic template should already contain most row headers. For
     # very sparse ad-hoc templates, create a simple table instead of writing into
     # random cells. Admin fields like PO/order/inspector/item/reason are never in
     # FAI_HEADERS, so this writer leaves them blank.
@@ -535,7 +535,7 @@ def fill_fai_template(template_path: str | Path, characteristics: list[Character
         for admin_col in admin_columns:
             ws.cell(row=row, column=admin_col).value = None
 
-        actual_col = columns["company Actual"]
+        actual_col = columns["Inspection Actual"]
         lsl_col = columns["Requirement LSL"]
         usl_col = columns["Requirement USL"]
         in_spec_col = columns["In Spec"]
