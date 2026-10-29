@@ -79,7 +79,7 @@ class Characteristic:
             "Requirement Nominal": self.nominal,
             "Requirement USL": self.usl,
             "Type": self.type,
-            "company Actual": self.actual,
+            "Inspection Actual": self.actual,
             "Tooling Used": self.tooling,
             "Comments": self.comments,
         }
