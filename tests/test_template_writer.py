@@ -38,7 +38,7 @@ def make_r3_like_template(path: Path) -> None:
     ws["A22"] = "CHAR"
     ws["C22"] = "REQUIREMENT"
     ws["G22"] = "SUPPLIER INSPECTION RESULT"
-    ws["J22"] = "company INSPECTION RESULT"
+    ws["J22"] = "INSPECTION RESULT"
     for merge_ref in ["B6:E6", "K6:N6", "B8:E8", "K8:N8", "B10:E10", "K10:N10", "B12:E12", "K12:N12", "B14:E14", "K14:N14"]:
         ws.merge_cells(merge_ref)
     for row in range(24, 49):
@@ -51,7 +51,7 @@ def make_r3_like_template(path: Path) -> None:
 
 
 def test_r3_template_writer_preserves_form_and_inclusive_formula(tmp_path):
-    template = tmp_path / "company_1st_Article_Form_R3.xlsx"
+    template = tmp_path / "GENERIC_1st_Article_Form_R3.xlsx"
     output = tmp_path / "filled.xlsx"
     make_r3_like_template(template)
     chars = [
@@ -83,7 +83,7 @@ def test_r3_template_writer_preserves_form_and_inclusive_formula(tmp_path):
 
 
 def test_r3_template_writer_fills_only_non_admin_header_metadata(tmp_path):
-    template = tmp_path / "company_1st_Article_Form_R3.xlsx"
+    template = tmp_path / "GENERIC_1st_Article_Form_R3.xlsx"
     output = tmp_path / "filled.xlsx"
     make_r3_like_template(template)
     chars = [
@@ -131,7 +131,7 @@ def test_generic_template_still_works(tmp_path):
     output = tmp_path / "generic_filled.xlsx"
     wb = Workbook()
     ws = wb.active
-    headers = ["Char Number", "Reference Location", "Requirement LSL", "Requirement Nominal", "Requirement USL", "Type", "company Actual", "In Spec", "Tooling Used", "Comments"]
+    headers = ["Char Number", "Reference Location", "Requirement LSL", "Requirement Nominal", "Requirement USL", "Type", "Inspection Actual", "In Spec", "Tooling Used", "Comments"]
     for col, header in enumerate(headers, start=1):
         ws.cell(row=1, column=col).value = header
     wb.save(template)
