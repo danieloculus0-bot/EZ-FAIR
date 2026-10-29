@@ -39,7 +39,7 @@ def _make_template(path: Path, headers: list[str] | None = None) -> None:
         "Requirement Nominal",
         "Requirement USL",
         "Type",
-        "company Actual",
+        "Inspection Actual",
         "In Spec",
         "Tooling Used",
         "Comments",
