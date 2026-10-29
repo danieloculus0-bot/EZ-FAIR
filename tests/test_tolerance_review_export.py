@@ -28,11 +28,11 @@ def _write_template(path: Path, r3: bool) -> None:
         ws["A22"] = "CHAR"
         ws["C22"] = "REQUIREMENT"
         ws["G22"] = "SUPPLIER INSPECTION RESULT"
-        ws["J22"] = "company INSPECTION RESULT"
+        ws["J22"] = "INSPECTION RESULT"
     else:
         headers = ["Char Number", "Reference Location", "Requirement LSL",
                    "Requirement Nominal", "Requirement USL", "Type",
-                   "company Actual", "In Spec", "Tooling Used", "Comments"]
+                   "Inspection Actual", "In Spec", "Tooling Used", "Comments"]
         ws.append(headers)
     wb.save(path)
 
