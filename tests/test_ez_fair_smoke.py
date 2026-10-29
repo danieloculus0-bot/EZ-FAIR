@@ -35,7 +35,7 @@ def make_template(path: Path) -> None:
         "Requirement Nominal",
         "Requirement USL",
         "Type",
-        "company Actual",
+        "Inspection Actual",
         "In Spec",
         "Tooling Used",
         "Comments",
@@ -66,7 +66,7 @@ def test_demo_pdf_extracts_expected_characteristics(tmp_path):
 
 def test_local_runner_creates_artifacts_and_inclusive_formula(tmp_path):
     pdf = tmp_path / "DVM-AE.pdf"
-    template = tmp_path / "company_FAI_TEMPLATE.xlsx"
+    template = tmp_path / "GENERIC_FAI_TEMPLATE.xlsx"
     out = tmp_path / "out"
     make_demo_pdf(pdf)
     make_template(template)
