@@ -33,8 +33,8 @@ def inspect_released_pdf(manifest, pdf_bytes):
         note = str(c.metadata.get("source") or c.raw_text or "").strip()
         if not note:
             continue
-        process = ("welding" if c.type == "WELD" or re.search(r"\\b(?:WELD|FILLET|SEAM)\\b", note, re.I)
-                   else "bending" if re.search(r"\\b(?:BENDS?|BRAKE|FLANGE)\\b", note, re.I) else None)
+        process = ("welding" if c.type == "WELD" or re.search(r"\b(?:WELD|FILLET|SEAM)\b", note, re.I)
+                   else "bending" if re.search(r"\b(?:BENDS?|BRAKE|FLANGE)\b", note, re.I) else None)
         if not process:
             continue
         key = (c.page_index, process, note.casefold())
