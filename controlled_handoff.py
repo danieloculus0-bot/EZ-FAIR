@@ -1,5 +1,6 @@
 """Verified ForgeVault-to-EZ-FAIR inspection proposal."""
 import hashlib
+import re
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from extractor_engine import extract_pdf_dimensions
@@ -26,10 +27,29 @@ def inspect_released_pdf(manifest, pdf_bytes):
         characteristics = extract_pdf_dimensions(path)
     if not characteristics:
         raise ValueError("no readable dimensions; manual inspection required")
+    candidates = []
+    observed = set()
+    for c in characteristics:
+        note = str(c.metadata.get("source") or c.raw_text or "").strip()
+        if not note:
+            continue
+        process = ("welding" if c.type == "WELD" or re.search(r"\\b(?:WELD|FILLET|SEAM)\\b", note, re.I)
+                   else "bending" if re.search(r"\\b(?:BENDS?|BRAKE|FLANGE)\\b", note, re.I) else None)
+        if not process:
+            continue
+        key = (c.page_index, process, note.casefold())
+        if key in observed:
+            continue
+        observed.add(key)
+        candidates.append({"schema": "axiom.fabrication_feature.v1", "process": process,
+                           "attributes": {}, "source": manifest["filename"],
+                           "page": c.page_index + 1, "region": c.reference_location,
+                           "raw_callout": note, "status": "proposed", "needs_review": True})
     rows = [{"char_number": c.char_number, "reference_location": c.reference_location,
              "raw_text": c.raw_text, "nominal": c.nominal, "lsl": c.lsl,
              "usl": c.usl, "characteristic_type": c.type, "tooling": c.tooling,
              "notes": c.comments, "source_metadata": c.metadata} for c in characteristics]
     return {"schema": "ezfair.inspection_handoff.v1", "status": "review_required",
             "source_drawing": {k: manifest[k] for k in required},
-            "characteristic_count": len(rows), "characteristics": rows}
+            "characteristic_count": len(rows), "characteristics": rows,
+            "fabrication_features": candidates}
