@@ -29,6 +29,26 @@ class ReleasedDrawingTests(unittest.TestCase):
         self.assertGreater(result["characteristic_count"], 0)
         self.assertTrue(all("actual" not in row for row in result["characteristics"]))
 
+    def test_fabrication_evidence_export_reuses_reviewed_characteristics(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        manifest, pdf = self.sample()
+        def characteristic(kind, text, page):
+            return SimpleNamespace(type=kind, raw_text=text,
+                metadata={"source": text}, page_index=page,
+                reference_location="synthetic page annotation",
+                char_number=1, nominal=0, lsl=0, usl=0,
+                tooling="VISUAL", comments="")
+        observed = [characteristic("WELD", "3/16 FILLET WELD", 0),
+                    characteristic("LINEAR", "BEND R.125 90 DEG", 0)]
+        with patch("controlled_handoff.extract_pdf_dimensions", return_value=observed):
+            result = inspect_released_pdf(manifest, pdf)
+        self.assertEqual([f["process"] for f in result["fabrication_features"]],
+                         ["welding", "bending"])
+        self.assertTrue(all(f["schema"] == "axiom.fabrication_feature.v1"
+                            and f["needs_review"] for f in result["fabrication_features"]))
+        self.assertTrue(all(f["source"] == "drawing.pdf" for f in result["fabrication_features"]))
+
     def test_tampering_and_unreleased_rejected(self):
         manifest, pdf = self.sample()
         with self.assertRaisesRegex(ValueError, "digest"):
