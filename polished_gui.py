@@ -9,31 +9,13 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
-try:
-    from extractor_fraction_weld_patch import (
-        Characteristic,
-        add_pdf_balloons,
-        extract_pdf_dimensions,
-        get_last_skipped_candidates,
-        write_debug_report,
-    )
-except Exception:
-    try:
-        from extractor_precision_patch import (
-            Characteristic,
-            add_pdf_balloons,
-            extract_pdf_dimensions,
-            get_last_skipped_candidates,
-            write_debug_report,
-        )
-    except Exception:
-        from extractor_engine import (
-            Characteristic,
-            add_pdf_balloons,
-            extract_pdf_dimensions,
-            get_last_skipped_candidates,
-            write_debug_report,
-        )
+from extractor_active import (
+    Characteristic,
+    add_pdf_balloons,
+    extract_pdf_dimensions,
+    get_last_skipped_candidates,
+    write_debug_report,
+)
 from fai_template_writer import fill_fai_template, template_row_capacity
 from local_test_runner import write_extraction_summary
 
