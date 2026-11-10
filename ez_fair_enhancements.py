@@ -14,7 +14,7 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any
 
-import fitz
+import pymupdf as fitz
 
 import ez_fai_builder as base
 from dimension_tolerance import tolerance_for_candidate

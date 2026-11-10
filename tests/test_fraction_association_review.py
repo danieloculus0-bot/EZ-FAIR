@@ -1,5 +1,5 @@
 """Fractions cannot inherit explicit limits from a different nominal's PDF line."""
-import fitz
+import pymupdf as fitz
 import pytest
 
 import extractor_fraction_weld_patch as fractions

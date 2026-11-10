@@ -1,6 +1,6 @@
 from pathlib import Path
 
-import fitz
+import pymupdf as fitz
 from openpyxl import Workbook, load_workbook
 
 from ez_fai_builder import calculate_tolerance_limits, extract_pdf_dimensions

@@ -12,7 +12,7 @@ from dimension_tolerance import bind_tolerances
 from pathlib import Path
 from typing import Any, Iterable
 
-import fitz  # PyMuPDF
+import pymupdf as fitz  # PyMuPDF
 
 TITLE_BLOCK_DEFAULTS = {
     "two_place": 0.02,

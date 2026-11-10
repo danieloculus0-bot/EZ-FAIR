@@ -16,7 +16,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Iterable
 
-import fitz  # PyMuPDF
+import pymupdf as fitz  # PyMuPDF
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 

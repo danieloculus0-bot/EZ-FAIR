@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-import fitz
+import pymupdf as fitz
 
 import extractor_engine as base
 from dimension_tolerance import bind_tolerances
