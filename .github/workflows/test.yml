@@ -38,6 +38,9 @@ jobs:
           test -f demo_outputs/demo_drawing_FAI.xlsx
           test -f demo_outputs/EZ_FAI_DEBUG_REPORT.txt
           test -f demo_outputs/EXTRACTION_SUMMARY.txt
+      - name: Report synthetic extraction benchmark (diagnostic only)
+        run: |
+          python tools/evaluate_extraction.py --manifest docs/examples/demo_benchmark.json --output demo_outputs/benchmark.json
       - name: Upload synthetic demo outputs
         uses: actions/upload-artifact@v4
         with:
@@ -47,6 +50,7 @@ jobs:
             demo_outputs/demo_drawing_FAI.xlsx
             demo_outputs/EZ_FAI_DEBUG_REPORT.txt
             demo_outputs/EXTRACTION_SUMMARY.txt
+            demo_outputs/benchmark.json
 
   windows-smoke:
     runs-on: windows-latest
