@@ -63,6 +63,8 @@ def evaluate_manifest(manifest_path: Path, extractor: Callable = extract_pdf_dim
     cases = data.get("cases")
     if not isinstance(cases, list) or not cases:
         raise ValueError("Benchmark needs a nonempty cases list with labeled drawings.")
+    # Unmatched extracted items are not false positives when labels are incomplete.
+    fully_labeled = all(case.get("fully_labeled", True) for case in cases)
     aggregate = dict(tp=0, fp=0, fn=0, traceable=0, produced=0)
     results = []
     for case in cases:
@@ -83,20 +85,32 @@ def evaluate_manifest(manifest_path: Path, extractor: Callable = extract_pdf_dim
             if match_index is not None:
                 used.add(match_index)
                 tp += 1
-        fp, fn = len(actual) - tp, len(expected) - tp
+        unmatched, fn = len(actual) - tp, len(expected) - tp
+        fp = unmatched if case.get("fully_labeled", True) else 0
         traceable = sum(_source_traceable(item, pages) for item in actual)
         for name, count in (("tp", tp), ("fp", fp), ("fn", fn),
                             ("traceable", traceable), ("produced", len(actual))):
             aggregate[name] += count
         results.append(dict(case=case.get("name", path.name), expected=len(expected),
-                            produced=len(actual), tp=tp, fp=fp, fn=fn,
-                            traceable=traceable))
+                            produced=len(actual), tp=tp,
+                            fully_labeled=bool(case.get("fully_labeled", True)),
+                            unmatched_extracted=unmatched,
+                            fp=fp if case.get("fully_labeled", True) else None,
+                            fn=fn, traceable=traceable))
     precision = aggregate["tp"] / (aggregate["tp"] + aggregate["fp"]) if aggregate["produced"] else 0.0
     recall = aggregate["tp"] / (aggregate["tp"] + aggregate["fn"]) if (aggregate["tp"] + aggregate["fn"]) else 0.0
     traceability = aggregate["traceable"] / aggregate["produced"] if aggregate["produced"] else 0.0
-    return dict(**aggregate, precision=round(precision, 4), recall=round(recall, 4),
-                source_rectangle_traceability=round(traceability, 4), cases=results,
-                warning="Human labels required. Source rectangle checks do not verify balloon placement.")
+    summary = dict(**aggregate, precision=round(precision, 4) if fully_labeled else None,
+                   recall=round(recall, 4) if fully_labeled else None,
+                   labeled_example_match_rate=round(
+                       aggregate["tp"] / (aggregate["tp"] + aggregate["fn"]), 4),
+                   source_rectangle_traceability=round(traceability, 4),
+                   fully_labeled=fully_labeled, cases=results,
+                   warning="Partial labels cannot establish precision or recall. "
+                           "Source rectangles do not verify balloon placement.")
+    if not fully_labeled:
+        summary["fp"] = None
+    return summary
 
 
 def main() -> None:
@@ -116,8 +130,8 @@ def main() -> None:
     for name, key in (("min_precision", "precision"), ("min_recall", "recall"),
                       ("min_traceability", "source_rectangle_traceability")):
         minimum = getattr(args, name)
-        if minimum is not None and result[key] < minimum:
-            raise SystemExit(f"Benchmark FAILED: {key}={result[key]} < {minimum}")
+        if minimum is not None and (result[key] is None or result[key] < minimum):
+            raise SystemExit(f"Benchmark FAILED or incompletely labeled: {key}={result[key]} < {minimum}")
 
 
 if __name__ == "__main__":

@@ -27,3 +27,13 @@ tolerance resolution, drawing interpretation, or actual inspection results.**
 Compare the same frozen dataset after every parser change. Keep difficult
 vector-only, scanned, fractional, weld, thread and GD&T cases separate in the
 private dataset so error classes can be examined. Humans must review outputs.
+
+## Incomplete synthetic smoke labels
+
+Set `"fully_labeled": false` only for a diagnostic smoke example, like
+`docs/examples/demo_benchmark.json`. In that mode precision, recall and
+false-positive count are intentionally `null`; the report gives only
+`labeled_example_match_rate`, unmatched extracted count and rectangle
+coverage. It would be misleading to call every unannotated candidate a false
+positive. A real benchmark must fully label every expected characteristic and
+use `"fully_labeled": true` (the default).
