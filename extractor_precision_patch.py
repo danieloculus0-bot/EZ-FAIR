@@ -121,9 +121,9 @@ def _title_noise(page: fitz.Page, rect: fitz.Rect, line: str, near: str) -> bool
     # reconciler, while this check concerns the candidate's own text only.
     if rect.y0 > page.rect.height * 0.70 and TITLE_SKIP.search(line):
         return True
-    if re.search(r"\b(?:TWO|THREE|ONE) PLACE DECIMAL\b", blob, re.I):
+    if re.search(r"\b(?:TWO|THREE|ONE) PLACE DECIMAL\b", line, re.I):
         return True
-    if re.search(r"\bSHEET\s+\d+\s+(?:OF|/)\s+\d+\b", blob, re.I):
+    if re.search(r"\bSHEET\s+\d+\s+(?:OF|/)\s+\d+\b", line, re.I):
         return True
     return False
 
