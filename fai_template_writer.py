@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import copy
+import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -525,6 +527,49 @@ def template_row_capacity(template_path: str | Path) -> int | None:
         wb.close()
 
 
+def _save_workbook_with_locked_fallback(book: Any, output_path: Path) -> Path:
+    """Save once, atomically; never fail merely because prior FAI is open.
+
+    Excel commonly locks a workbook on Windows. Save the newly generated
+    workbook to a temporary file in the output directory first, then replace
+    the requested report name if unlocked. If Windows denies that replacement
+    and the old report exists, retain the old report unchanged and choose
+    a new _02, _03 ... filename for the single new workbook instead.
+    This also prevents a failed save from partially corrupting the old report.
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, staged_path = tempfile.mkstemp(
+        prefix=f".{output_path.stem}_",
+        suffix=output_path.suffix,
+        dir=output_path.parent,
+    )
+    os.close(fd)
+    staged = Path(staged_path)
+    try:
+        book.save(staged)
+        try:
+            os.replace(staged, output_path)
+            return output_path
+        except PermissionError:
+            if not output_path.is_file():
+                # Don't disguise an inaccessible output directory as a
+                # locked Excel report.
+                raise
+            for number in range(2, 1000):
+                alternative = output_path.with_name(
+                    f"{output_path.stem}_{number:02d}{output_path.suffix}"
+                )
+                if alternative.exists():
+                    continue
+                os.replace(staged, alternative)
+                return alternative
+            raise RuntimeError("Could not find a free Excel output filename.")
+    finally:
+        if staged.exists():
+            staged.unlink()
+
+
 def fill_fai_template(template_path: str | Path, characteristics: Iterable[Any], output_path: str | Path | None = None) -> Path:
     template_path = Path(template_path)
     characteristics = list(characteristics)
@@ -548,9 +593,11 @@ def fill_fai_template(template_path: str | Path, characteristics: Iterable[Any],
         _fill_r3_form(ws, characteristics)
     else:
         _fill_generic(ws, characteristics)
-    wb.save(output_path)
-    wb.close()
-    return output_path
+    try:
+        saved_path = _save_workbook_with_locked_fallback(wb, output_path)
+    finally:
+        wb.close()
+    return saved_path
 
 
 
@@ -664,8 +711,7 @@ def fill_fai_template_pages(
                 # Empty slots must not carry phantom balloon numbers,
                 # especially on the final continuation tab.
                 _clear_unused_fai_rows(sheet, R3_START_ROW + len(batch))
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        book.save(output_path)
+        saved_path = _save_workbook_with_locked_fallback(book, output_path)
     finally:
         book.close()
-    return [output_path]
+    return [saved_path]
