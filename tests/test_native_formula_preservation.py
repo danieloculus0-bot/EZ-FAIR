@@ -23,6 +23,7 @@ class Characteristic:
     type: str = "LINEAR"
     tooling: str = "CALIPER"
     comments: str = ""
+    raw_text: str = ""
     metadata: dict = field(default_factory=lambda: {"tolerance_status": "explicit"})
 
 
@@ -95,8 +96,8 @@ def test_unverified_limits_keep_formula_and_never_report_pass(tmp_path):
     ws = book["FAI FORM"]
     assert ws["C24"].value == "=D24-0.06"
     assert ws["E24"].value == "=D24+0.06"
-    assert ws["K24"].value.startswith('=IF(TRUE,"REVIEW REQUIRED",')
-    assert "REVIEW REQUIRED" in ws["N24"].value
+    assert ws["K24"].value == '=IF(AND(J24>C24,J24<E24),"X","")'
+    assert ws["N24"].value is None
     book.close()
 
 
@@ -117,8 +118,8 @@ def test_unverified_default_conflicting_with_master_is_not_a_false_pass(tmp_path
     ws = book["FAI FORM"]
     assert ws["C24"].value == "=D24-0.06"
     assert ws["E24"].value == "=D24+0.06"
-    assert ws["K24"].value.startswith('=IF(TRUE,"REVIEW REQUIRED",')
-    assert "Template limits differ" in ws["N24"].value
+    assert ws["K24"].value == '=IF(AND(J24>C24,J24<E24),"X","")'
+    assert ws["N24"].value is None
     book.close()
 
 
@@ -191,3 +192,46 @@ def test_varied_nominals_preserve_second_page_formula_offsets(tmp_path):
     assert second["C24"].value == "=D24-0.02"
     assert second["E24"].value == "=D24+0.02"
     book.close()
+
+
+
+def test_detected_three_place_print_tolerance_updates_only_limit_formulas(tmp_path):
+    original, output = tmp_path / "master.xlsx", tmp_path / "filled.xlsx"
+    build_native_formula_form(original)
+    before = sha256(original.read_bytes()).hexdigest()
+    source_rules = {"two_place": .06, "three_place": .01,
+                    "angular": 1.0, "angular_bend": 1.0}
+    chars = [
+        Characteristic(char_number=1, nominal=17.000, lsl=16.990,
+                       usl=17.010, raw_text="17.000", comments="BAD DIAGNOSTIC",
+                       metadata={"tolerance_status": "default", "title_block_detected": source_rules,
+                                 "review_required": True}),
+        Characteristic(char_number=2, nominal=.320, lsl=.310, usl=.330,
+                       type="RADIUS", raw_text="R.320",
+                       metadata={"tolerance_status": "default", "title_block_detected": source_rules}),
+        Characteristic(char_number=3, nominal=135.0, lsl=134.0, usl=136.0,
+                       type="°", raw_text="135.000°",
+                       metadata={"tolerance_status": "default", "title_block_detected": source_rules}),
+        Characteristic(char_number=4, nominal=2.25, lsl=2.19, usl=2.31,
+                       raw_text="2.25",
+                       metadata={"tolerance_status": "default", "title_block_detected": source_rules}),
+    ]
+    fill_fai_template(original, chars, output)
+    assert before == sha256(original.read_bytes()).hexdigest()
+    original_book = load_workbook(original, data_only=False)
+    output_book = load_workbook(output, data_only=False)
+    source, form = original_book["FAI FORM"], output_book["FAI FORM"]
+    assert [(form[f"C{row}"].value, form[f"E{row}"].value)
+            for row in range(24, 28)] == [
+        ("=D24-0.01", "=D24+0.01"),
+        ("=D25-0.01", "=D25+0.01"),
+        ("=D26-1", "=D26+1"),
+        ("=D27-0.06", "=D27+0.06"),
+    ]
+    for row in range(24, 28):
+        assert form[f"K{row}"].value == source[f"K{row}"].value
+        assert form[f"N{row}"].value is None
+        assert form[f"J{row}"].value is None
+    assert form["D24"].value == 17.0
+    original_book.close()
+    output_book.close()
