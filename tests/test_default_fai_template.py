@@ -78,9 +78,10 @@ def test_builtin_master_paginates_and_keeps_formula_logic(tmp_path):
     files = fill_fai_template_pages(
         source, [Candidate(char_number=n) for n in range(1, 28)], tmp_path / "demo_FAI.xlsx"
     )
-    assert len(files) == 2
-    first = load_workbook(files[0], data_only=False)["FAI FORM"]
-    second = load_workbook(files[1], data_only=False)["FAI FORM"]
+    assert files == [tmp_path / "demo_FAI.xlsx"]
+    book = load_workbook(files[0], data_only=False)
+    first = book["FAI FORM"]
+    second = book["FAI FORM 2"]
     assert first["A24"].value == 1
     assert first["A48"].value == 25
     assert second["A24"].value == 26
@@ -88,6 +89,8 @@ def test_builtin_master_paginates_and_keeps_formula_logic(tmp_path):
     assert second["C24"].data_type == "f"
     assert second["E24"].data_type == "f"
     assert second["K24"].data_type == "f"
+    assert book.sheetnames.count("FAI FORM 2") == 1
+    book.close()
 
 
 def test_batch_mode_can_use_builtin_without_template_argument(tmp_path, monkeypatch):
