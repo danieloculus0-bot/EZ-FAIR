@@ -194,6 +194,63 @@ def _remove_title_block_candidates(
     ]
 
 
+def _source_tolerance(item: Any, detected: dict[str, float]) -> tuple[str, float] | None:
+    """Only resolve a tolerance if it is evidenced by THIS drawing.
+
+    No application setting, template C/E formula, or legacy fallback is
+    sufficient evidence. Keep original decimal precision from the raw print
+    text; conversion to float loses its trailing zeroes.
+    """
+    import re
+
+    raw = str(getattr(item, "raw_text", "") or "").strip()
+    kind = str(getattr(item, "type", "") or "").upper()
+    if kind in {"°", "ANGLE", "ANGULAR"} or "°" in raw:
+        # By default drawing angles represent formed bends; the MACH category
+        # should be used only for a dimension explicitly marked machined.
+        source_context = str((getattr(item, "metadata", {}) or {}).get("source", ""))
+        machine_angle = bool(re.search(r"\bMACH(?:INED|INING)?\b", source_context, re.I))
+        key = "angular_mach" if machine_angle else "angular_bend"
+        if key in detected:
+            return key, float(detected[key])
+        if "angular" in detected and "angular_mach" not in detected:
+            return "angular", float(detected["angular"])
+        return None
+    if re.search(r"\b\d+\s*/\s*\d+\b", raw) and "." not in raw:
+        return ("fractional", float(detected["fractional"])) if "fractional" in detected else None
+    decimal = re.search(r"\.(\d+)", raw)
+    if not decimal:
+        return None
+    places = len(decimal.group(1))
+    key = {1: "one_place", 2: "two_place"}.get(places, "three_place")
+    # For one-place dimensions, don't guess that two-place tolerances apply.
+    if key not in detected:
+        return None
+    return key, float(detected[key])
+
+
+def _apply_source_tolerances(items: list[Any], detected: dict[str, float]) -> None:
+    for item in items:
+        metadata = getattr(item, "metadata", {}) or {}
+        # Explicit tolerances printed next to the dimension win. A merely
+        # inferred tolerance must never trump the original drawing.
+        if metadata.get("tolerance_status") == "explicit":
+            metadata["tolerance_source"] = "dimension_explicit"
+            continue
+        resolved = _source_tolerance(item, detected)
+        if resolved is None:
+            item.lsl, item.usl = None, None
+            metadata["tolerance_source"] = "unknown"
+            continue
+        label, tolerance = resolved
+        nominal = float(item.nominal)
+        item.lsl = round(nominal - tolerance, 6)
+        item.usl = round(nominal + tolerance, 6)
+        metadata["tolerance_source"] = "drawing_title_block"
+        metadata["tolerance_rule"] = label
+        metadata["tolerance_value"] = tolerance
+
+
 def extract_pdf_dimensions_hybrid(pdf_path: str | Path, settings: Any = None) -> list[native.Characteristic]:
     """Read native PDF and OCR independently, then reconcile by evidence."""
     from ez_fair_enhancements import (
@@ -224,12 +281,14 @@ def extract_pdf_dimensions_hybrid(pdf_path: str | Path, settings: Any = None) ->
     legacy.TITLE_BLOCK_DEFAULTS.update(defaults)
     extractor_engine.TITLE_BLOCK_DEFAULTS.update(defaults)
     vectors = native.extract_pdf_dimensions(source)
+    _apply_source_tolerances(vectors, detected)
     ocrs: list[Any] = []
     ocr_error = ""
     if settings.enable_ocr_fallback:
         try:
             # Always run OCR; never gate it on len(vectors) == 0.
             ocrs = _extract_from_ocr(source, settings)
+            _apply_source_tolerances(ocrs, detected)
         except (RuntimeError, OSError) as exc:
             ocr_error = str(exc)
     if not vectors and not ocrs and ocr_error:
