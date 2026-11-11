@@ -59,7 +59,7 @@ class EnhancedEZFAIBuilderApp(base.EZFAIBuilderApp):
             ttk.Label(settings_tab, text=label).grid(row=row, column=0, sticky="w", padx=6, pady=6)
             ttk.Entry(settings_tab, textvariable=variable, width=16).grid(row=row, column=1, sticky="w", padx=6, pady=6)
         ttk.Checkbutton(settings_tab, text="Auto-detect tolerance box in bottom-right title block", variable=self.auto_title_var).grid(row=4, column=0, columnspan=2, sticky="w", padx=6, pady=8)
-        ttk.Checkbutton(settings_tab, text="Use offline OCR fallback when vector extraction returns zero dimensions", variable=self.ocr_var).grid(row=5, column=0, columnspan=2, sticky="w", padx=6, pady=8)
+        ttk.Checkbutton(settings_tab, text="Run offline OCR alongside native PDF extraction (reconcile both)", variable=self.ocr_var).grid(row=5, column=0, columnspan=2, sticky="w", padx=6, pady=8)
         ttk.Button(settings_tab, text="Save Settings", command=self.save_settings).grid(row=6, column=0, sticky="w", padx=6, pady=12)
         ttk.Label(settings_tab, text="OCR is fully local. Tesseract must be installed on the Windows machine.", wraplength=650).grid(row=7, column=0, columnspan=2, sticky="w", padx=6, pady=6)
 

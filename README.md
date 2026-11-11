@@ -24,13 +24,25 @@ are the source of truth for CI status. The version recorded in
   integration handoff. **This is not an authenticated multi-user approval screen.**
 - Work with synthetic demo inputs without publishing private drawings.
 
-The default polished desktop workbench and local test runner both import
-`extractor_active.py`. This explicit entrypoint currently combines
-`extractor_engine.py`, `extractor_precision_patch.py` and
-`extractor_fraction_weld_patch.py`. Failures are no longer hidden by
-falling back to another extractor. The optional `ez_fair.py` launcher
-still uses the older enhanced extraction path and should be treated separately
-until the pipelines are consolidated and benchmarked.
+The polished Windows launcher, enhanced Tk GUI, base Python GUI and Python
+batch entrypoint now share `hybrid_extraction.py`: the native PDF parser
+and offline OCR run independently on each drawing when OCR is enabled, even
+when native extraction finds dimensions. Matched same-location candidates retain
+both sources; disagreements and OCR-only findings remain visible and are marked
+review-required, rather than hiding native results. `extractor_active.py`
+continues to compose the precision and fraction/weld parsers. The synthetic
+local test runner still uses that native-only path to keep its baseline stable.
+
+Controlled Excel templates with existing C/E tolerance formulas are handled
+without changing their original formatting, merges, logos/images, sheet list,
+print settings or unaffected formulas. Explicit drawing tolerances are written
+as Excel formulas referring to the nominal; conflicting/unverified defaults
+keep the original master formula and block automatic acceptance with REVIEW
+REQUIRED. The original template file is never overwritten. Master forms with
+a fixed 25-row body reject overflow rather than silently moving their footer.
+Do not upload private employer/customer templates into this public repository.
+These behaviors require an on-machine test with authorized local drawings and
+templates before being considered production-verified.
 
 ## Install locally
 

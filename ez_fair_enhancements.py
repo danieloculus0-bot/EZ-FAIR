@@ -197,9 +197,15 @@ def detect_title_block_defaults(pdf_path: str | Path, settings: ExtractionSettin
         for page in doc:
             clip = fitz.Rect(page.rect.width * 0.55, page.rect.height * 0.55, page.rect.width, page.rect.height)
             text = page.get_text("text", clip=clip)
-            if not text.strip() and settings.enable_ocr_fallback:
-                words = _page_ocr_words(page, settings.ocr_dpi)
-                text = " ".join(str(word[4]) for word in words if clip.intersects(base._word_rect(word)))
+            if settings.enable_ocr_fallback:
+                # Title-block tolerance data can be missing from vector text
+                # even when other native content exists. Compare BOTH paths.
+                try:
+                    words = _page_ocr_words(page, settings.ocr_dpi)
+                except (RuntimeError, OSError):
+                    words = []
+                ocr_text = " ".join(str(word[4]) for word in words if clip.intersects(base._word_rect(word)))
+                text = text + "\n" + ocr_text
             normalized = text.replace("＋", "+").replace("−", "-")
             for key, patterns in TITLE_TOL_PATTERNS.items():
                 if key in detected:
@@ -260,27 +266,7 @@ def extract_gdt_characteristics(pdf_path: str | Path, start_number: int, setting
     return results
 
 
-def extract_pdf_dimensions_enhanced(pdf_path: str | Path, settings: ExtractionSettings | None = None) -> list[base.Characteristic]:
-    settings = settings or ExtractionSettings.load()
-    if settings.auto_detect_title_block:
-        detected = detect_title_block_defaults(pdf_path, settings)
-        for key, value in detected.items():
-            setattr(settings, key, value)
-    _apply_settings(settings)
-
-    characteristics = base.extract_pdf_dimensions(pdf_path)
-    vector_count = len(characteristics)
-    if vector_count == 0 and settings.enable_ocr_fallback:
-        characteristics = _extract_from_ocr(Path(pdf_path), settings)
-
-    gdt = extract_gdt_characteristics(pdf_path, len(characteristics) + 1, settings)
-    characteristics.extend(gdt)
-    for index, characteristic in enumerate(characteristics, start=1):
-        characteristic.char_number = index
-        characteristic.metadata.setdefault("title_block_defaults", {
-            "two_place": settings.two_place,
-            "three_place": settings.three_place,
-            "angular": settings.angular,
-        })
-        characteristic.metadata.setdefault("vector_characteristics", vector_count)
-    return characteristics
+def extract_pdf_dimensions_enhanced(pdf_path: str | Path, settings: ExtractionSettings | None = None):
+    """Use the same native-plus-OCR evidence engine as the polished GUI."""
+    from hybrid_extraction import extract_pdf_dimensions_hybrid
+    return extract_pdf_dimensions_hybrid(pdf_path, settings)

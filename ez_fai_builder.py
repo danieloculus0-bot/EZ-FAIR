@@ -762,7 +762,8 @@ class EZFAIBuilderApp(tk.Tk):
         try:
             self.status.set("Extracting dimensions...")
             self.update_idletasks()
-            self.characteristics = extract_pdf_dimensions(self.pdf_path)
+            from hybrid_extraction import extract_pdf_dimensions_hybrid
+            self.characteristics = extract_pdf_dimensions_hybrid(self.pdf_path)
             for characteristic in self.characteristics:
                 characteristic.metadata["drawing_name"] = self.pdf_path.stem
             self.review_table.load(self.characteristics)
@@ -790,8 +791,9 @@ class EZFAIBuilderApp(tk.Tk):
             balloon_path = self.pdf_path.with_name(f"{self.pdf_path.stem}_BALLOONED.pdf")
             fai_path = self.pdf_path.with_name(f"{self.pdf_path.stem}_FAI.xlsx")
             debug_path = self.pdf_path.with_name("EZ_FAI_DEBUG_REPORT.txt")
+            from fai_template_writer import fill_fai_template as fill_preserved_template
             add_pdf_balloons(self.pdf_path, self.characteristics, balloon_path)
-            fill_fai_template(self.template_path, self.characteristics, fai_path)
+            fill_preserved_template(self.template_path, self.characteristics, fai_path)
             write_debug_report(self.pdf_path, self.template_path, self.characteristics, debug_path)
             self.status.set(f"Created: {balloon_path.name}, {fai_path.name}, and {debug_path.name}")
             messagebox.showinfo("Outputs created", f"Created:\n{balloon_path}\n{fai_path}\n{debug_path}")
@@ -804,14 +806,16 @@ def generate_outputs_for_files(pdf_path: str | Path, template_path: str | Path) 
     """Extract, balloon, fill Excel, and write debug report for two local files."""
     pdf_path = Path(pdf_path)
     template_path = Path(template_path)
-    characteristics = extract_pdf_dimensions(pdf_path)
+    from hybrid_extraction import extract_pdf_dimensions_hybrid
+    characteristics = extract_pdf_dimensions_hybrid(pdf_path)
     for characteristic in characteristics:
         characteristic.metadata["drawing_name"] = pdf_path.stem
     balloon_path = pdf_path.with_name(f"{pdf_path.stem}_BALLOONED.pdf")
     fai_path = pdf_path.with_name(f"{pdf_path.stem}_FAI.xlsx")
     debug_path = pdf_path.with_name("EZ_FAI_DEBUG_REPORT.txt")
+    from fai_template_writer import fill_fai_template as fill_preserved_template
     add_pdf_balloons(pdf_path, characteristics, balloon_path)
-    fill_fai_template(template_path, characteristics, fai_path)
+    fill_preserved_template(template_path, characteristics, fai_path)
     write_debug_report(pdf_path, template_path, characteristics, debug_path)
     return balloon_path, fai_path, debug_path, characteristics
 
