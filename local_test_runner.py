@@ -6,7 +6,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Iterable
 
-from extractor_engine import (
+from extractor_active import (
     Characteristic,
     SkippedCandidate,
     TITLE_BLOCK_DEFAULTS,

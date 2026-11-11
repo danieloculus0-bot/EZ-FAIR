@@ -1,0 +1,14 @@
+{
+  "dataset": "synthetic_demo_only_not_held_out",
+  "cases": [
+    {
+      "name": "generated_demo_pdf",
+      "fully_labeled": false,
+      "pdf": "../../demo_inputs/demo_drawing.pdf",
+      "expected": [
+        { "page": 1, "type": "LINEAR", "nominal": 16.0 },
+        { "page": 1, "type": "LINEAR", "nominal": 13.53 }
+      ]
+    }
+  ]
+}

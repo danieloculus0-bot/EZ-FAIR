@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-import fitz
+import pymupdf as fitz
 
 import extractor_engine as base
 import extractor_precision_patch as prev

@@ -1,6 +1,10 @@
+param(
+    [string]$ExpectedSha256 = ''
+)
+
 $ErrorActionPreference = 'Stop'
 
-$RepoZipUrl = 'https://github.com/danieloculus0-bot/EZ-FAIR/archive/refs/heads/main.zip'
+$RepoZipUrl = 'https://github.com/danieloculus0-bot/EZ-FAIR/archive/refs/tags/v0.2.0b1.zip'
 $InstallRoot = Join-Path $env:USERPROFILE 'EZ-FAIR'
 $SourceDir = Join-Path $InstallRoot 'app'
 $VenvDir = Join-Path $InstallRoot '.venv'
@@ -12,7 +16,7 @@ $DesktopShortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) 'EZ-FAIR.
 $StartMenuDir = Join-Path ([Environment]::GetFolderPath('Programs')) 'EZ-FAIR'
 $StartMenuShortcut = Join-Path $StartMenuDir 'EZ-FAIR.lnk'
 $TempDir = Join-Path $env:TEMP ('ezfair_update_' + [Guid]::NewGuid().ToString('N'))
-$ZipPath = Join-Path $TempDir 'EZ-FAIR-main.zip'
+$ZipPath = Join-Path $TempDir 'EZ-FAIR-v0.2.0b1.zip'
 $ExtractDir = Join-Path $TempDir 'extract'
 
 function Write-Step($Message) {
@@ -42,6 +46,14 @@ New-Item -ItemType Directory -Force -Path $InstallRoot, $SourceDir, $BinDir, $Te
 
 Write-Step 'Downloading latest EZ-FAIR from GitHub'
 Invoke-WebRequest -Uri $RepoZipUrl -OutFile $ZipPath -UseBasicParsing
+if ($ExpectedSha256) {
+    $ActualSha256 = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash
+    if ($ActualSha256 -ine $ExpectedSha256) {
+        throw "EZ-FAIR archive checksum mismatch. Expected $ExpectedSha256, got $ActualSha256."
+    }
+} else {
+    Write-Warning 'The release tag pins the source version, but no independent ZIP SHA-256 was supplied. Use -ExpectedSha256 when verifying an approved archive.'
+}
 
 Write-Step 'Extracting update package'
 Expand-Archive -Path $ZipPath -DestinationPath $ExtractDir -Force
@@ -84,8 +96,18 @@ New-Shortcut -ShortcutPath $StartMenuShortcut -TargetPath $LauncherCmd -Argument
 
 Write-Step 'Running import check'
 Push-Location $SourceDir
-& $PythonExe -c "import fitz, openpyxl, extractor_engine, fai_template_writer, local_test_runner, polished_gui; print('EZ-FAIR updated OK')"
+& $PythonExe -c "import pymupdf, openpyxl, extractor_active, ez_fair, polished_gui; print('EZ-FAIR updated OK')"
+if ($LASTEXITCODE -ne 0) { throw 'EZ-FAIR update sanity check failed.' }
 Pop-Location
+
+Write-Step 'Checking optional offline OCR engine'
+$Tesseract = Get-Command 'tesseract.exe' -ErrorAction SilentlyContinue
+if (-not $Tesseract) {
+    $CommonTesseract = Join-Path $env:ProgramFiles 'Tesseract-OCR\tesseract.exe'
+    if (-not (Test-Path $CommonTesseract)) {
+        Write-Warning 'Scanned PDF OCR requires a separate Tesseract installation with English language data. See README.md. Vector PDF extraction still works.'
+    }
+}
 
 Write-Step 'Update complete'
 Write-Host "Updated app folder: $SourceDir" -ForegroundColor Green

@@ -1,43 +1,112 @@
 # EZ-FAIR
 
-**Working Python desktop application** for First Article Inspection drawing extraction and FAI document building.
+Local desktop application for building **review-required** First Article Inspection
+(FAI) candidate characteristics, ballooned PDFs and editable FAI workbooks.
 
-**[Try the interactive EZ-FAIR demo](https://danieloculus0-bot.github.io/BEAN/portfolio/ez-fair/)** · **[View The Workshop](https://danieloculus0-bot.github.io/BEAN/portfolio/)**
+**Status: supervised technical beta.** An operator must verify every extracted
+characteristic and tolerance against the original customer drawing before using
+an FAI output. This is **not** unattended, customer-facing or automatically
+certified inspection software. No actual measurements or acceptance decisions
+are generated without review.
 
-The public demo provides a synthetic drawing walkthrough; the real PDF extraction and FAI document generation run in the desktop Python application. It produces reviewable candidate characteristics from PDFs, not automatically certified measurements.
+[Current GitHub Actions checks](https://github.com/danieloculus0-bot/EZ-FAIR/actions)
+are the source of truth for CI status. The version recorded in
+`pyproject.toml` is `0.2.0b1`; release readiness is a separate decision.
 
-## Current build state
+## What it can do
 
-**Reviewed:** 2026-10-20 · **Inspected main:** `223ad25777d6` · **Stage:** working desktop application under active engineering refinement; individual workflow evidence below.
+- Extract vector-text candidates, including dimensions and review-required
+  fractional and weld callouts through the active desktop extraction pipeline.
+- Generate a ballooned PDF, editable FAI workbook and extraction/debug reports.
+- Offer an alternative enhanced Tk launcher with optional offline OCR for scanned
+  PDFs, title-block settings and basic GD&T candidates.
+- Validate controlled-file identity and hashes for a local ForgeVault-style
+  integration handoff. **This is not an authenticated multi-user approval screen.**
+- Work with synthetic demo inputs without publishing private drawings.
 
-- [EZ-FAIR tests](https://github.com/danieloculus0-bot/EZ-FAIR/actions/runs/39502697068) — **Passed** at inspected `main`.
+The default polished desktop workbench and local test runner both import
+`extractor_active.py`. This explicit entrypoint currently combines
+`extractor_engine.py`, `extractor_precision_patch.py` and
+`extractor_fraction_weld_patch.py`. Failures are no longer hidden by
+falling back to another extractor. The optional `ez_fair.py` launcher
+still uses the older enhanced extraction path and should be treated separately
+until the pipelines are consolidated and benchmarked.
 
-[Live CI and build history](https://github.com/danieloculus0-bot/EZ-FAIR/actions) takes precedence over this dated snapshot.
+## Install locally
 
-## Working capabilities
+Requires Python 3.11+; Windows desktop is the primary target. In a fresh
+folder containing this repository:
 
-- PyMuPDF vector extraction, optional offline OCR, title-block tolerance and GD&T candidates, ballooned PDF plus editable FAI workbook.
-- Charcoal/steel/lime desktop presentation (Tkinter workbench); characteristic editing and source-specific comments.
-- Controlled ForgeVault released-PDF handoff validates identity, revision and SHA-256 before extracting review-required characteristics; Axiom integration exercised against real source on Windows/Linux.
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe polished_gui.py
+```
 
-## Install and run
+The optional enhanced OCR/settings GUI can be started with
+` .\.venv\Scripts\python.exe ez_fair.py ` (without the surrounding spaces).
+On Linux/macOS replace the virtual-environment executable path with
+`.venv/bin/python`; a graphical desktop and Tk support are needed to open
+either GUI. All packages in `requirements.txt` are pinned for beta
+reproducibility. To check Python components without opening windows, run
+`python -m pytest -q` and `python tools/repo_health.py` in the venv.
 
-`python -m venv .venv`, install `requirements.txt`, then `python ez_fair.py` for the enhanced desktop application. The optional Tk workbench also lives in `polished_gui.py`. Run `python -m pytest -q` for automated checks. [Full instructions and drawing-testing walkthrough](docs/archive/README_2026-10-20_before_refresh.md).
+### Scanned PDF OCR requires an extra Windows application
 
-## Known engineering limits
+The Python package `pytesseract` is **only a wrapper**. For scanned or
+flattened PDFs, install the separate [Tesseract OCR engine](https://tesseract-ocr.github.io/tessdoc/Installation.html)
+with English language data, then restart EZ-FAIR. On Windows the usual
+location is `C:\Program Files\Tesseract-OCR\tesseract.exe`. The enhanced
+launcher checks the system PATH and common Windows install folders. You can
+also set `EZFAIR_TESSERACT_CMD` to the full executable path:
 
-- OCR and GD&T candidates may be incomplete or incorrect; humans must review characteristics, tolerance interpretation, and file-to-balloon correspondence.
-- Extracted inspection proposals contain no measured values or implicit passes. The controlled file integration is not yet an authenticated shared-user release screen.
-- Current automated tests do not constitute a broad representative customer-drawing accuracy benchmark.
+```powershell
+$env:EZFAIR_TESSERACT_CMD = 'C:\Program Files\Tesseract-OCR\tesseract.exe'
+.\.venv\Scripts\python.exe -c "import pytesseract; from ocr_support import configure_tesseract; print(configure_tesseract(pytesseract))"
+```
 
-## Next priorities
+No external OCR engine is needed for vector PDFs. The Windows setup scripts
+warn if Tesseract is missing; OCR errors explain which installation is needed.
 
-Build a representative held-out drawing set, score recall/false positives and source-to-balloon traceability, and improve the controlled-review UX.
+### Windows installation and update scripts
+
+`install_windows.ps1` and `update_windows.ps1` target the versioned
+`v0.2.0b1` archive, **not the moving main branch**. That tag must be
+published after passing CI, and the scripts are intended to be run only from
+an approved release. Optionally use `-ExpectedSha256 <verified-hash>` to
+reject mismatched downloaded archives. See [release procedure](docs/RELEASE_PROCESS.md).
+The update script preserves `local_inputs` and `local_outputs`.
+Windows installer behavior still needs on-machine end-to-end verification.
+
+## Testing, limitations and next steps
+
+Run `python -m pytest -q`. CI additionally checks all tracked Python files,
+headless GUI imports, a package installation, synthetic output generation,
+benchmark reporting and Windows PowerShell syntax (not a full install).
+
+[Local labeled accuracy benchmark](docs/BENCHMARK.md) supports evaluation of
+precision, recall and source-rectangle provenance using synthetic or
+**explicitly cleared** PDFs. The bundled demo is not a representative accuracy
+benchmark. Vector-only GD&T/weld semantics, missing or assumed tolerances,
+balloon location, false positives and actual FAI disposition all require
+human checking. The benchmark does **not** validate balloon placement.
+
+Open issues include editable balloon placement, exclusions and roadmap work.
+Draft engineering parser PR #6 remains unmerged until behavior is verified on
+held-out drawings. Extraction-module consolidation and authenticated release
+approval are further development work. The [synthetic interactive demo,
+maintained separately in BEAN](https://danieloculus0-bot.github.io/BEAN/portfolio/ez-fair/)
+is not an EZ-FAIR release dependency.
+
+**License:** no distribution license has yet been selected by the repository
+owner; a public repository is not itself permission to redistribute.
+Do not call this an approved redistributable installer until that decision
+and the release review are complete.
 
 ## Documentation
 
-- [Cross-app FAI test](https://github.com/danieloculus0-bot/Axiom_Beta/blob/main/integration_tests/test_controlled_fai_wiring.py)
+- [Benchmark design and private testing](docs/BENCHMARK.md)
+- [Release procedure](docs/RELEASE_PROCESS.md)
 - [Local drawing test runner](run_local_test.ps1)
-- [**Full earlier README: setup, feature history, experiments and rationale**](docs/archive/README_2026-10-20_before_refresh.md)
-
-Historical details are archived, not discarded. Unverified planned features are not silently described as shipped.
+- [Archived engineering history and earlier install notes](docs/archive/README_2026-10-20_before_refresh.md)
+- [Cross-app integration test in Axiom_Beta](https://github.com/danieloculus0-bot/Axiom_Beta/blob/main/integration_tests/test_controlled_fai_wiring.py)

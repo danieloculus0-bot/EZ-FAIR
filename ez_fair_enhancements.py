@@ -14,10 +14,11 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any
 
-import fitz
+import pymupdf as fitz
 
 import ez_fai_builder as base
 from dimension_tolerance import tolerance_for_candidate
+from ocr_support import configure_tesseract
 
 try:
     import pytesseract
@@ -102,10 +103,17 @@ def _page_ocr_words(page: fitz.Page, dpi: int) -> list[tuple[Any, ...]]:
             "This PDF has no extractable vector text. Install pytesseract and Pillow, "
             "and install the offline Tesseract OCR engine, then retry."
         )
+    configure_tesseract(pytesseract)
     scale = dpi / 72.0
     pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
     image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-    data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT, config="--psm 11")
+    try:
+        data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT, config="--psm 11")
+    except pytesseract.TesseractError as exc:
+        raise RuntimeError(
+            "Tesseract OCR failed. Verify the English language data is installed "
+            "and the scanned drawing is legible, then retry."
+        ) from exc
     words: list[tuple[Any, ...]] = []
     for index, text in enumerate(data.get("text", [])):
         text = str(text).strip()

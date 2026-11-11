@@ -8,6 +8,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 REQUIRED_FILES = [
+    'extractor_active.py',
+    'ez_fair.py',
+    'ez_fair_enhancements.py',
+    'ocr_support.py',
+    'pyproject.toml',
     'ez_fai_builder.py',
     'fai_template_writer.py',
     'local_test_runner.py',
@@ -22,7 +27,7 @@ def main() -> None:
     if missing:
         raise SystemExit(f'Missing required files: {missing}')
 
-    for module_name in ['ez_fai_builder', 'fai_template_writer', 'local_test_runner']:
+    for module_name in ['extractor_active', 'ez_fair', 'ez_fair_enhancements', 'polished_gui', 'ez_fai_builder', 'fai_template_writer', 'local_test_runner']:
         importlib.import_module(module_name)
 
     print('EZ-FAIR repo health check passed')
