@@ -53,6 +53,31 @@ Do not upload private employer/customer templates into this public repository.
 These behaviors require an on-machine test with authorized local drawings and
 templates before being considered production-verified.
 
+## Built-in Excel form and private default override
+
+**No Excel template needs to be selected to start an FAI.** On first use,
+both desktop GUIs generate and select the original neutral
+`local_templates/EZFAIR_Default_FAI.xlsx` master. This is a
+full **Excel workbook**, not a dark-themed preview or substituted report.
+It has 25 editable inspection rows, original Excel LSL/USL/acceptance
+formulas, manual actual-value fields and dropdown lists. More than 25
+reviewed characteristics generate multiple numbered copies of the master.
+
+The default is deliberately **unbranded** and independently created from
+generic FAI concepts; no employer/customer template or logo is bundled or
+republished. A site-controlled private Excel master can instead be placed at
+`local_templates/FAI_MASTER.xlsx` on the operator's computer.
+If it exists, EZ-FAIR selects it automatically. Alternatively, browse to a
+site-approved workbook once: the app saves only its local path in
+`~/.ezfair_default_template.json` and selects that file on subsequent
+runs. Neither local file nor the preference is committed to GitHub.
+Select **Use Built-In FAI** to return to the neutral template. Existing
+source workbooks are never overwritten by export.
+
+The Python command-line path can be used with only a drawing PDF:
+`python ez_fai_builder.py drawing.pdf`. Supplying a template
+as a second argument is still supported.
+
 ## Install locally
 
 Requires Python 3.11+; Windows desktop is the primary target. In a fresh
