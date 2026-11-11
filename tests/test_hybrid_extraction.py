@@ -140,3 +140,20 @@ def test_radius_not_reclassified_as_angle_by_adjacent_degree_symbol():
     assert _type_for_match(raw, line, "", bindings[0]) == "RADIUS"
     assert classify_dimension("R19.86", line) == "RADIUS"
     assert classify_dimension(".32", "UP 19.86° AND .32") != "°"
+
+
+
+def test_slightly_shifted_ocr_bbox_does_not_add_another_balloon():
+    # Rendered glyph boxes and native CAD text rects are seldom identical.
+    result = reconcile_characteristics([dim(n=6.0, x=60, y=80)], [dim(n=6.0, x=78, y=82)])
+    assert len(result) == 1
+    assert result[0].metadata["extraction_paths"] == ["native_pdf", "ocr"]
+
+
+def test_same_nominal_repeated_on_drawing_remains_two_characteristics():
+    results = reconcile_characteristics(
+        [dim(n=6.0, x=60, y=80), dim(n=6.0, x=300, y=80)],
+        [dim(n=6.0, x=74, y=83), dim(n=6.0, x=318, y=83)],
+    )
+    assert len(results) == 2
+    assert all(item.metadata["extraction_paths"] == ["native_pdf", "ocr"] for item in results)
