@@ -17,6 +17,7 @@ from extractor_active import (
     write_debug_report,
 )
 from fai_template_writer import fill_fai_template, template_row_capacity
+from ez_fair_enhancements import extract_pdf_dimensions_enhanced
 from local_test_runner import write_extraction_summary
 
 APP_NAME = "EZ-FAIR"
@@ -216,7 +217,7 @@ class EzFairApp(tk.Tk):
 
         def worker() -> None:
             try:
-                chars = extract_pdf_dimensions(pdf)
+                chars = extract_pdf_dimensions_enhanced(pdf)
                 for char in chars:
                     char.metadata.setdefault("drawing_name", pdf.stem)
                 capacity = template_row_capacity(template)
@@ -231,7 +232,11 @@ class EzFairApp(tk.Tk):
         self.characteristics = chars
         self.refresh_table()
         self.set_busy(False)
-        self.log(f"Extracted {len(chars)} characteristics. Skipped {skipped} candidates.")
+        verified = sum(c.metadata.get("evidence_status") == "corroborated" for c in chars)
+        reviews = sum(bool(c.metadata.get("review_required")) for c in chars)
+        self.log(f"Extracted {len(chars)} characteristics; {verified} supported by both paths, {reviews} flagged for review. Skipped {skipped} native candidates.")
+        if chars and chars[0].metadata.get("ocr_unavailable"):
+            self.log("OCR unavailable: native PDF findings retained; install/check Tesseract for parallel OCR.")
 
     def refresh_table(self) -> None:
         self.tree.delete(*self.tree.get_children())
