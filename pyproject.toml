@@ -28,6 +28,6 @@ py-modules = [
     "controlled_handoff", "dimension_tolerance", "extractor_active",
     "extractor_engine", "extractor_fraction_weld_patch",
     "extractor_precision_patch", "ez_fai_builder", "ez_fair",
-    "ez_fair_enhancements", "fai_template_writer", "hybrid_extraction",
+    "ez_fair_enhancements", "fai_template_writer", "hybrid_extraction", "default_fai_template",
     "local_test_runner", "ocr_support", "polished_gui",
 ]
