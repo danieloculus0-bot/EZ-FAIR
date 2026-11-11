@@ -356,8 +356,15 @@ class EzFairApp(tk.Tk):
         for label, path in outputs.items():
             self.output_list.insert(tk.END, f"{label}: {path.name}")
         self.set_busy(False)
-        count = sum(label.startswith("FAI Excel") for label in outputs)
-        self.log(f"Outputs generated successfully; {count} original-format Excel form(s). Double-click an output to open it.")
+        try:
+            capacity = template_row_capacity(Path(self.template_path.get()))
+        except (OSError, ValueError):
+            capacity = None
+        pages = max(1, (len(self.characteristics) + capacity - 1) // capacity) if capacity == 25 else 1
+        self.log(
+            f"Outputs generated successfully: ONE Excel FAI workbook with "
+            f"{pages} original-layout form tab(s). Double-click to open."
+        )
 
     def _show_error(self, title: str, exc: Exception | str) -> None:
         self.set_busy(False)
