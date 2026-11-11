@@ -175,6 +175,39 @@ def _r3_inclusive_formula(row: int) -> str:
     return f'=IF(J{row}="","",IF(AND(J{row}>=C{row},J{row}<=E{row}),"X",""))'
 
 
+def _guard_original_passfail(ws: Any, row: int) -> None:
+    """Retain existing acceptance logic while preventing unmeasured false Xs.
+
+    This wraps the *same source formula expression* only in generated outputs.
+    The original controlled workbook is never modified. Empty actuals or
+    unverified/blank limits must display empty, not an automatic pass.
+    """
+    disposition = ws.cell(row, R3_COLUMNS["In Spec"])
+    original = disposition.value
+    if not (isinstance(original, str) and original.startswith("=")):
+        original = _r3_inclusive_formula(row)
+    condition = f'OR(J{row}="",C{row}="",E{row}="",NOT(ISNUMBER(J{row})),NOT(ISNUMBER(C{row})),NOT(ISNUMBER(E{row})))'
+    if original.startswith("=IF(OR(J") and "NOT(ISNUMBER(" in original:
+        # Idempotent for second-stage exports.
+        return
+    disposition.value = f'=IF({condition},"",{original[1:]})'
+
+
+def _clear_unused_fai_rows(ws: Any, first_unused_row: int, end_row: int = R3_TEMPLATE_END_ROW) -> None:
+    """Leave unused inspection rows *visually empty*, preserving their styles."""
+    for row in range(first_unused_row, end_row + 1):
+        for col in (
+            R3_COLUMNS["Char Number"], R3_COLUMNS["Reference Location"],
+            R3_COLUMNS["Requirement LSL"], R3_COLUMNS["Requirement Nominal"],
+            R3_COLUMNS["Requirement USL"], R3_COLUMNS["Type"],
+            R3_COLUMNS["Supplier Actual"], R3_COLUMNS["Supplier Yes"],
+            R3_COLUMNS["Supplier No"], R3_COLUMNS["Inspection Actual"],
+            R3_COLUMNS["In Spec"], R3_COLUMNS["Tooling Used"],
+            R3_COLUMNS["Comments"],
+        ):
+            ws.cell(row, col).value = None
+
+
 def _required_r3_end_row(characteristic_count: int) -> int:
     return max(R3_TEMPLATE_END_ROW, R3_START_ROW + max(characteristic_count, 1) - 1)
 
@@ -197,10 +230,8 @@ def _reset_r3_rows(ws, start_row: int, end_row: int) -> None:
         ws.cell(row=row, column=R3_COLUMNS["Char Number"]).value = row - start_row + 1
         for header in ["Reference Location", "Requirement LSL", "Requirement Nominal", "Requirement USL", "Type", "Supplier Actual", "Supplier Yes", "Supplier No", "Inspection Actual", "Tooling Used", "Comments"]:
             ws.cell(row=row, column=R3_COLUMNS[header]).value = None
-        # Keep the form designer's native pass/fail formula when present.
-        disposition = ws.cell(row=row, column=R3_COLUMNS["In Spec"])
-        if not (isinstance(disposition.value, str) and disposition.value.startswith("=")):
-            disposition.value = _r3_inclusive_formula(row)
+        # The output formula is guarded only when a characteristic is used.
+        # Empty rows are explicitly cleared after filling, including K.
 
 
 def _apply_r3_editable_layout(ws, end_row: int) -> None:
@@ -258,12 +289,11 @@ def _fill_r3_form(ws, characteristics: list[Any]) -> int:
         ws.cell(row=row, column=R3_COLUMNS["Requirement USL"]).value = values["Requirement USL"]
         ws.cell(row=row, column=R3_COLUMNS["Type"]).value = values["Type"]
         ws.cell(row=row, column=R3_COLUMNS["Inspection Actual"]).value = None
-        # Never replace a formula with review diagnostics or altered pass/fail logic.
-        disposition = ws.cell(row=row, column=R3_COLUMNS["In Spec"])
-        if not (isinstance(disposition.value, str) and disposition.value.startswith("=")):
-            disposition.value = _r3_inclusive_formula(row)
+        # Guard original acceptance logic against empty actuals/limits.
+        _guard_original_passfail(ws, row)
         ws.cell(row=row, column=R3_COLUMNS["Tooling Used"]).value = values["Tooling Used"]
-        ws.cell(row=row, column=R3_COLUMNS["Comments"]).value = values["Comments"]
+        ws.cell(row=row, column=R3_COLUMNS["Comments"]).value = None
+    _clear_unused_fai_rows(ws, R3_START_ROW + len(characteristics), end_row)
     _add_list_validation(ws, f"F{R3_START_ROW}:F{end_row}", "'CHARACTERISTICS'!$A$1:$A$33")
     _add_list_validation(ws, f"M{R3_START_ROW}:M{end_row}", "'TOOLING'!$A$1:$A$10")
     _add_list_validation(ws, f"H{R3_START_ROW}:I{end_row}", "'ATTRIBUTE'!$A$1:$A$2")
@@ -401,9 +431,14 @@ def _fill_formula_master(ws, characteristics: list[Any]) -> int:
                     ws, row, column, values["Requirement Nominal"],
                     values[limit_header], "explicit",
                 )
-        # Original K-column pass/fail formula is intentionally never touched.
-        # No comments, review notes, or extraction warnings inside the FAI form.
+        # The source K expression remains intact, wrapped only in the output
+        # with a no-measurement/no-limits guard so an empty row cannot pass.
+        _guard_original_passfail(ws, row)
+        # No comments, review notes, or extraction warnings in the FAI form.
         ws.cell(row, R3_COLUMNS["Comments"]).value = None
+    # The controlled source master has prefilled formulas through row 48.
+    # Blank the entire unused inspection region of the OUTPUT workbook.
+    _clear_unused_fai_rows(ws, R3_START_ROW + len(characteristics))
     return len(characteristics)
 
 
@@ -628,8 +663,7 @@ def fill_fai_template_pages(
                 # A controlled master may pre-number all 25 empty body rows.
                 # Empty slots must not carry phantom balloon numbers,
                 # especially on the final continuation tab.
-                for unused in range(R3_START_ROW + len(batch), R3_TEMPLATE_END_ROW + 1):
-                    sheet.cell(unused, R3_COLUMNS["Char Number"]).value = None
+                _clear_unused_fai_rows(sheet, R3_START_ROW + len(batch))
         output_path.parent.mkdir(parents=True, exist_ok=True)
         book.save(output_path)
     finally:

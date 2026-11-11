@@ -79,10 +79,12 @@ def test_native_master_keeps_its_image_styles_formulas_and_print_layout(tmp_path
     assert after["D24"].value == 2.0
     assert after["C24"].value == "=D24-0.02"
     assert after["E24"].value == "=D24+0.02"
-    assert after["K24"].value == before["K24"].value
+    assert before["K24"].value[1:] in after["K24"].value
+    assert 'OR(J24="",C24="",E24=""' in after["K24"].value
     assert after["C25"].value is None  # no default on unpopulated rows
     assert after["E25"].value is None  # master itself keeps its formulas
-    assert after["K25"].value == before["K25"].value
+    assert after["K25"].value is None
+    assert before["K25"].data_type == "f"
     source.close()
     changed.close()
 
@@ -96,7 +98,8 @@ def test_unverified_limits_keep_formula_and_never_report_pass(tmp_path):
     ws = book["FAI FORM"]
     assert ws["C24"].value is None
     assert ws["E24"].value is None
-    assert ws["K24"].value == '=IF(AND(J24>C24,J24<E24),"X","")'
+    assert ws["K24"].value.endswith('IF(AND(J24>C24,J24<E24),"X",""))')
+    assert 'NOT(ISNUMBER(J24))' in ws["K24"].value
     assert ws["N24"].value is None
     book.close()
 
@@ -118,7 +121,8 @@ def test_unverified_default_conflicting_with_master_is_not_a_false_pass(tmp_path
     ws = book["FAI FORM"]
     assert ws["C24"].value is None
     assert ws["E24"].value is None
-    assert ws["K24"].value == '=IF(AND(J24>C24,J24<E24),"X","")'
+    assert ws["K24"].value.endswith('IF(AND(J24>C24,J24<E24),"X",""))')
+    assert 'NOT(ISNUMBER(J24))' in ws["K24"].value
     assert ws["N24"].value is None
     book.close()
 
@@ -147,7 +151,8 @@ def test_more_than_25_characteristics_produces_one_workbook_with_form_tabs(tmp_p
         tabs, [1, 26, 51], [25, 50, 58]
     ):
         ws = book[tab]
-        assert ws.max_row == 48
+        # Empty unused rows need no cells; preserve the full printed form area.
+        assert (24 + expected_last - expected_first) <= ws.max_row <= 48
         assert len(ws._images) == 1
         assert ws["A24"].value == expected_first
         assert ws[f"A{24 + expected_last - expected_first}"].value == expected_last
@@ -232,7 +237,8 @@ def test_detected_three_place_print_tolerance_updates_only_limit_formulas(tmp_pa
         ("=D27-0.06", "=D27+0.06"),
     ]
     for row in range(24, 28):
-        assert form[f"K{row}"].value == source[f"K{row}"].value
+        assert source[f"K{row}"].value[1:] in form[f"K{row}"].value
+        assert f'J{row}=""' in form[f"K{row}"].value
         assert form[f"N{row}"].value is None
         assert form[f"J{row}"].value is None
     assert form["D24"].value == 17.0
@@ -257,8 +263,47 @@ def test_no_inherited_tolerances_on_any_report_row_if_unknown(tmp_path):
     for row in range(24, 49):
         assert ws[f"C{row}"].value is None
         assert ws[f"E{row}"].value is None
-        assert ws[f"K{row}"].data_type == "f"
+        assert ws[f"K{row}"].data_type == ("f" if row == 24 else "n")
         assert ws[f"N{row}"].value is None
     assert ws["D24"].value == 17.0
     wb.close()
     assert sha256(source.read_bytes()).hexdigest() == original_hash
+
+
+
+def test_twelve_characteristics_leave_rest_of_original_fai_visibly_blank(tmp_path):
+    original = tmp_path / "source_master.xlsx"
+    output = tmp_path / "single_fai.xlsx"
+    build_native_formula_form(original)
+    before = sha256(original.read_bytes()).hexdigest()
+    chars = [
+        Characteristic(char_number=i, nominal=float(i), lsl=float(i) - 0.01,
+                       usl=float(i) + 0.01, reference_location=f"P1-R{i}",
+                       raw_text=f"{i}.000", comments="DO NOT EXPORT",
+                       metadata={"tolerance_status": "explicit"})
+        for i in range(1, 13)
+    ]
+    fill_fai_template_pages(original, chars, output)
+    assert sha256(original.read_bytes()).hexdigest() == before
+    source = load_workbook(original, data_only=False)
+    generated = load_workbook(output, data_only=False)
+    out = generated["FAI FORM"]
+    assert len(out._images) == len(source["FAI FORM"]._images)
+    assert {str(m) for m in out.merged_cells.ranges} == {
+        str(m) for m in source["FAI FORM"].merged_cells.ranges
+    }
+    for row in range(24, 36):
+        assert out[f"D{row}"].value == row - 23
+        assert out[f"C{row}"].value == f"=D{row}-0.01"
+        assert out[f"E{row}"].value == f"=D{row}+0.01"
+        formula = out[f"K{row}"].value
+        assert formula.startswith(f'=IF(OR(J{row}="",C{row}="",E{row}=""')
+        assert source["FAI FORM"][f"K{row}"].value[1:] in formula
+        assert out[f"J{row}"].value is None
+        assert out[f"N{row}"].value is None
+    for row in range(36, 49):
+        for col in ("A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "M", "N"):
+            assert out[f"{col}{row}"].value is None, f"{col}{row} leaked content"
+    assert source["FAI FORM"]["K36"].data_type == "f"
+    source.close()
+    generated.close()
