@@ -113,8 +113,8 @@ def create_neutral_fai_template(path: str | Path) -> Path:
     for row in range(BODY_START, BODY_END + 1):
         form.row_dimensions[row].height = 19
         form[f"A{row}"] = row - BODY_START + 1
-        form[f"C{row}"] = f"=D{row}-0.02"
-        form[f"E{row}"] = f"=D{row}+0.02"
+        # Leave LSL and USL completely blank until a verified drawing rule
+        # or explicitly printed dimension tolerance supplies the limits.
         form[f"K{row}"] = (
             f'=IF(J{row}="","",IF(AND(J{row}>=C{row},J{row}<=E{row}),"X",""))'
         )

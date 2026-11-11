@@ -279,8 +279,13 @@ def _is_formula_master(ws) -> bool:
     """
     if not _is_r3_form(ws):
         return False
-    # K-column pass/fail formulas also occur in ordinary R3 templates; only
-    # pre-existing paired C/E limit formulas identify the native formula master.
+    # The freshly generated neutral form intentionally has no preset
+    # tolerance formulas. Its own instruction banner identifies it as a
+    # controlled blank-limit master while leaving all other R3 variants alone.
+    if "Enter actual measurements only after inspection" in str(ws["A17"].value or ""):
+        return True
+    # Traditional controlled masters carry their own C/E formulas. Retain
+    # them in the original source but strip inherited defaults from outputs.
     return any(
         isinstance(ws.cell(row, 3).value, str)
         and ws.cell(row, 3).value.startswith("=")
@@ -363,6 +368,13 @@ def _fill_formula_master(ws, characteristics: list[Any]) -> int:
             "split the inspection into additional forms rather than altering its layout."
         )
     _fill_r3_header_metadata(ws, characteristics)
+    # Copy the original form unchanged, then clear ONLY generated-form LSL/USL.
+    # Source templates often contain static ±0.060 formulas in all 25 rows;
+    # those are layout-era placeholders, not evidence from the current print.
+    # Never emit default limits in populated or unused rows.
+    for blank_row in range(R3_START_ROW, R3_TEMPLATE_END_ROW + 1):
+        ws.cell(blank_row, R3_COLUMNS["Requirement LSL"]).value = None
+        ws.cell(blank_row, R3_COLUMNS["Requirement USL"]).value = None
     for offset, characteristic in enumerate(characteristics):
         row = R3_START_ROW + offset
         values = _row_values(characteristic)
@@ -379,8 +391,8 @@ def _fill_formula_master(ws, characteristics: list[Any]) -> int:
         # dimensional tolerance evidence or the correct title-block precision
         # rule. For unknown rules leave the original formula untouched and
         # report uncertainty outside the FAI workbook (debug/summary only).
-        source_default = _verified_title_default(characteristic, metadata)
-        if tolerance_status == "explicit" or (tolerance_status == "default" and source_default):
+        source_default = metadata.get("tolerance_source") == "drawing_title_block"
+        if tolerance_status == "explicit" or source_default:
             for column, limit_header in (
                 (R3_COLUMNS["Requirement LSL"], "Requirement LSL"),
                 (R3_COLUMNS["Requirement USL"], "Requirement USL"),
