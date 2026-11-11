@@ -158,6 +158,8 @@ def test_more_than_25_characteristics_produces_one_workbook_with_form_tabs(tmp_p
         assert ws["A3"].fill.fgColor.rgb == book["FAI FORM"]["A3"].fill.fgColor.rgb
     assert book["FAI FORM 2"]["C24"].value == "=D24-0.02"
     assert book["FAI FORM 3"]["D24"].value == 51
+    assert book["FAI FORM 3"]["A31"].value == 58
+    assert book["FAI FORM 3"]["A32"].value is None
     book.close()
 
 
