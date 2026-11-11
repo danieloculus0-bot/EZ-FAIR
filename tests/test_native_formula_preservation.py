@@ -10,7 +10,7 @@ from PIL import Image as PILImage
 from openpyxl import Workbook, load_workbook
 from openpyxl.drawing.image import Image as ExcelImage
 from openpyxl.styles import Font, PatternFill
-from fai_template_writer import fill_fai_template
+from fai_template_writer import fill_fai_template, fill_fai_template_pages
 
 
 @dataclass
@@ -120,3 +120,64 @@ def test_unverified_default_conflicting_with_master_is_not_a_false_pass(tmp_path
     assert ws["K24"].value.startswith('=IF(TRUE,"REVIEW REQUIRED",')
     assert "Template limits differ" in ws["N24"].value
     book.close()
+
+
+
+def test_more_than_25_characteristics_produces_multiple_pristine_form_workbooks(tmp_path):
+    master = tmp_path / "controlled_template.xlsx"
+    build_native_formula_form(master)
+    original_hash = sha256(master.read_bytes()).hexdigest()
+    candidates = [
+        Characteristic(char_number=i, reference_location=f"P1-Z{i}", nominal=float(i),
+                       lsl=float(i) - 0.02, usl=float(i) + 0.02)
+        for i in range(1, 59)
+    ]
+    forms = fill_fai_template_pages(master, candidates, tmp_path / "part_FAI.xlsx")
+    assert len(forms) == 3
+    assert all(path.exists() for path in forms)
+    assert sha256(master.read_bytes()).hexdigest() == original_hash
+
+    for number, (path, expected_first, expected_last) in enumerate(
+        zip(forms, [1, 26, 51], [25, 50, 58]), start=1
+    ):
+        assert path.name.endswith(f"_FORM_{number:02d}_of_03.xlsx")
+        book = load_workbook(path, data_only=False)
+        ws = book["FAI FORM"]
+        assert ws.max_row == 48
+        assert len(ws._images) == 1
+        assert ws["A24"].value == expected_first
+        assert ws[f"A{24 + expected_last - expected_first}"].value == expected_last
+        assert ws["C24"].data_type == "f"
+        assert ws["E24"].data_type == "f"
+        assert ws["K24"].data_type == "f"
+        assert "review" not in str(ws["K24"].value).lower()
+        assert ws.print_area == "'FAI FORM'!$A$1:$N$48"
+        book.close()
+
+
+def test_single_page_export_name_remains_stable(tmp_path):
+    master = tmp_path / "master.xlsx"
+    build_native_formula_form(master)
+    target = tmp_path / "output.xlsx"
+    files = fill_fai_template_pages(
+        master, [Characteristic(char_number=1)], target
+    )
+    assert files == [target]
+    assert target.exists()
+
+
+def test_varied_nominals_preserve_second_page_formula_offsets(tmp_path):
+    master = tmp_path / "master.xlsx"
+    build_native_formula_form(master)
+    candidates = [
+        Characteristic(char_number=i, nominal=100 + i,
+                       lsl=99.98 + i, usl=100.02 + i)
+        for i in range(1, 27)
+    ]
+    files = fill_fai_template_pages(master, candidates, tmp_path / "out.xlsx")
+    second = load_workbook(files[1], data_only=False)
+    assert second["FAI FORM"]["A24"].value == 26
+    assert second["FAI FORM"]["D24"].value == 126
+    assert second["FAI FORM"]["C24"].value == "=D24-0.02"
+    assert second["FAI FORM"]["E24"].value == "=D24+0.02"
+    second.close()
