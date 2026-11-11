@@ -19,6 +19,7 @@ from typing import Any, Iterable
 import pymupdf as fitz  # PyMuPDF
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
+from default_fai_template import resolve_default_template, save_default_template, reset_default_template
 
 TITLE_BLOCK_DEFAULTS = {
     "two_place": 0.02,
@@ -710,7 +711,7 @@ class EZFAIBuilderApp(tk.Tk):
         self.title("EZ FAI Builder")
         self.geometry("1100x650")
         self.pdf_path: Path | None = None
-        self.template_path: Path | None = None
+        self.template_path: Path | None = resolve_default_template()
         self.characteristics: list[Characteristic] = []
         self._build_ui()
 
@@ -723,8 +724,9 @@ class EZFAIBuilderApp(tk.Tk):
         self.pdf_label.grid(row=0, column=1, sticky="w", padx=4)
 
         ttk.Button(top, text="Select Excel Template", command=self.select_template).grid(row=1, column=0, padx=4, pady=4)
-        self.template_label = ttk.Label(top, text="No Excel template selected")
+        self.template_label = ttk.Label(top, text=str(self.template_path))
         self.template_label.grid(row=1, column=1, sticky="w", padx=4)
+        ttk.Button(top, text="Use Built-In FAI", command=self.use_builtin_template).grid(row=1, column=2, padx=4, pady=4)
 
         ttk.Button(top, text="Extract Dimensions", command=self.extract_dimensions).grid(row=2, column=0, padx=4, pady=8)
         ttk.Button(top, text="Generate Ballooned PDF + FAI Excel", command=self.generate_outputs).grid(row=2, column=1, sticky="w", padx=4, pady=8)
@@ -752,8 +754,12 @@ class EZFAIBuilderApp(tk.Tk):
     def select_template(self) -> None:
         filename = filedialog.askopenfilename(title="Select FAI Excel template", filetypes=[("Excel files", "*.xlsx *.xlsm")])
         if filename:
-            self.template_path = Path(filename)
+            self.template_path = save_default_template(filename)
             self.template_label.config(text=str(self.template_path))
+
+    def use_builtin_template(self) -> None:
+        self.template_path = reset_default_template()
+        self.template_label.config(text=str(self.template_path))
 
     def extract_dimensions(self) -> None:
         if not self.pdf_path:
@@ -804,10 +810,10 @@ class EZFAIBuilderApp(tk.Tk):
             messagebox.showerror("Output generation failed", str(exc))
 
 
-def generate_outputs_for_files(pdf_path: str | Path, template_path: str | Path) -> tuple[Path, Path, Path, list[Characteristic]]:
-    """Extract, balloon, fill Excel, and write debug report for two local files."""
+def generate_outputs_for_files(pdf_path: str | Path, template_path: str | Path | None = None) -> tuple[Path, Path, Path, list[Characteristic]]:
+    """Extract, balloon, fill Excel, and write debug report using the default form."""
     pdf_path = Path(pdf_path)
-    template_path = Path(template_path)
+    template_path = Path(template_path) if template_path is not None else resolve_default_template()
     from hybrid_extraction import extract_pdf_dimensions_hybrid
     characteristics = extract_pdf_dimensions_hybrid(pdf_path)
     for characteristic in characteristics:
@@ -834,7 +840,7 @@ if __name__ == "__main__":
     parser.add_argument("pdf", nargs="?", help="Optional PDF blueprint path for batch generation")
     parser.add_argument("template", nargs="?", help="Optional Excel FAI template path for batch generation")
     args = parser.parse_args()
-    if args.pdf and args.template:
+    if args.pdf:
         ballooned, fai, debug, chars = generate_outputs_for_files(args.pdf, args.template)
         print(f"Extracted {len(chars)} characteristics")
         print(f"Ballooned PDF: {ballooned}")
