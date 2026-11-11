@@ -267,6 +267,90 @@ def _fill_r3_form(ws, characteristics: list[Any]) -> int:
     return len(characteristics)
 
 
+def _is_formula_master(ws) -> bool:
+    """A controlled form with existing tolerance and disposition formulas.
+
+    Detect the *structure*, not an employer name or filename. Avoid the R3
+    restyling/reset routine for forms that already encode their own logic.
+    """
+    if not _is_r3_form(ws):
+        return False
+    formula_cells = sum(
+        isinstance(ws.cell(row, col).value, str)
+        and ws.cell(row, col).value.startswith("=")
+        for row in range(R3_START_ROW, min(ws.max_row, R3_TEMPLATE_END_ROW) + 1)
+        for col in (3, 5, 11)
+    )
+    return formula_cells >= 2
+
+
+def _update_native_bound_formula(ws, row: int, column: int, nominal: Any, limit: Any, status: str) -> None:
+    """Keep tolerance bounds as native Excel formulas, never static substitutes.
+
+    Source-confirmed explicit tolerances can adjust the offset without changing
+    cell formatting. For unverified defaults, retain the template's own formula.
+    """
+    cell = ws.cell(row, column)
+    if status != "explicit" or not isinstance(nominal, (float, int)) or not isinstance(limit, (float, int)):
+        return
+    offset = nominal - limit if column == 3 else limit - nominal
+    if offset < 0:
+        return
+    if offset == 0:
+        proposed = f"=D{row}"
+    else:
+        proposed = f"=D{row}{'-' if column == 3 else '+'}{offset:.10g}"
+    old = cell.value
+    if isinstance(old, str) and old.startswith("="):
+        native = re.fullmatch(rf"=D{row}\s*([+-])\s*(\d+(?:\.\d+)?)", old, re.I)
+        if native:
+            current = float(native.group(2)) * (1 if native.group(1) == ("-" if column == 3 else "+") else -1)
+            if abs(current - offset) < 1e-8:
+                return
+    cell.value = proposed
+
+
+def _fill_formula_master(ws, characteristics: list[Any]) -> int:
+    """Fill ONLY inspection data in a native formula-bearing Excel form.
+
+    Preserve the source drawing/image, merged cells, styles, original workbook
+    sheets, print settings, validations, and all unaffected cell formulas.
+    Never insert rows into a controlled master, which could move its footer.
+    """
+    if len(characteristics) > R3_TEMPLATE_CAPACITY:
+        raise ValueError(
+            f"The controlled Excel form holds {R3_TEMPLATE_CAPACITY} characteristics; "
+            "split the inspection into additional forms rather than altering its layout."
+        )
+    _fill_r3_header_metadata(ws, characteristics)
+    for offset, characteristic in enumerate(characteristics):
+        row = R3_START_ROW + offset
+        values = _row_values(characteristic)
+        metadata = _characteristic_metadata(characteristic)
+        ws.cell(row, R3_COLUMNS["Char Number"]).value = offset + 1
+        ws.cell(row, R3_COLUMNS["Reference Location"]).value = values["Reference Location"]
+        ws.cell(row, R3_COLUMNS["Requirement Nominal"]).value = values["Requirement Nominal"]
+        ws.cell(row, R3_COLUMNS["Type"]).value = values["Type"]
+        ws.cell(row, R3_COLUMNS["Tooling Used"]).value = values["Tooling Used"]
+        # Never fill inspection measurements or acceptance decisions from OCR.
+        ws.cell(row, R3_COLUMNS["Inspection Actual"]).value = None
+        tolerance_status = str(metadata.get("tolerance_status", "default"))
+        _update_native_bound_formula(ws, row, R3_COLUMNS["Requirement LSL"], values["Requirement Nominal"], values["Requirement LSL"], tolerance_status)
+        _update_native_bound_formula(ws, row, R3_COLUMNS["Requirement USL"], values["Requirement Nominal"], values["Requirement USL"], tolerance_status)
+        review = _tolerance_needs_review(characteristic, values)
+        comments = str(values["Comments"] or "")
+        if review:
+            comments = (comments + " | " if comments else "") + "REVIEW REQUIRED: extraction/tolerance evidence"
+            disposition = ws.cell(row, R3_COLUMNS["In Spec"])
+            if isinstance(disposition.value, str) and disposition.value.startswith("="):
+                # Keep the original formula expression but prevent a false pass.
+                disposition.value = '=IF(TRUE,"REVIEW REQUIRED",' + disposition.value[1:] + ')'
+            else:
+                disposition.value = "REVIEW REQUIRED"
+        ws.cell(row, R3_COLUMNS["Comments"]).value = comments
+    return len(characteristics)
+
+
 def _header_targets() -> dict[str, str]:
     targets: dict[str, str] = {}
     for canonical, aliases in HEADER_ALIASES.items():
@@ -366,9 +450,11 @@ def fill_fai_template(template_path: str | Path, characteristics: Iterable[Any],
         raise ValueError("FAI Excel output cannot overwrite the original template.")
     keep_vba = template_path.suffix.lower() == ".xlsm"
     wb = load_workbook(template_path, keep_vba=keep_vba)
-    _ensure_list_sheets(wb)
     ws = _pick_sheet(wb)
-    if _is_r3_form(ws):
+    if _is_formula_master(ws):
+        _fill_formula_master(ws, characteristics)
+    elif _is_r3_form(ws):
+        _ensure_list_sheets(wb)
         _fill_r3_form(ws, characteristics)
     else:
         _fill_generic(ws, characteristics)
