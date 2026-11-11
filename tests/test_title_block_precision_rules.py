@@ -26,6 +26,43 @@ def test_english_worded_precision_rules_do_not_swap_two_and_three_place():
     assert got["angular"] == pytest.approx(1.0)
 
 
+def test_unsigned_original_title_block_rules_are_detected():
+    # Many real manufacturer drawings have no printed + / - / ± marker.
+    notes = (
+        'DIMENSIONS ARE IN INCHES TOLERANCES: '
+        'FRACTIONAL 1/16" ANGULAR: MACH .5 BEND 1 '
+        'TWO PLACE DECIMAL 0.06 THREE PLACE DECIMAL 0.01'
+    )
+    parsed = parse_title_block_tolerances(notes)
+    assert parsed["two_place"] == pytest.approx(0.06)
+    assert parsed["three_place"] == pytest.approx(0.01)
+    assert parsed["fractional"] == pytest.approx(1 / 16)
+    assert parsed["angular_mach"] == pytest.approx(0.5)
+    assert parsed["angular_bend"] == pytest.approx(1.0)
+
+
+def test_missing_title_rules_stay_unknown_not_application_defaults():
+    from hybrid_extraction import _source_tolerance
+
+    class Dim:
+        raw_text = "17.000"
+        type = "LINEAR"
+        metadata = {}
+
+    assert _source_tolerance(Dim(), {}) is None
+
+
+def test_machined_and_bend_angles_get_different_print_limits():
+    from hybrid_extraction import _source_tolerance
+    from types import SimpleNamespace
+
+    rules = {"angular_mach": 0.5, "angular_bend": 1.0}
+    bend = SimpleNamespace(raw_text="135.000°", type="°", metadata={"source": "135.000°"})
+    mach = SimpleNamespace(raw_text="90.000°", type="°", metadata={"source": "MACH ANGLE 90.000°"})
+    assert _source_tolerance(bend, rules) == ("angular_bend", 1.0)
+    assert _source_tolerance(mach, rules) == ("angular_mach", 0.5)
+
+
 def test_numeric_title_block_style_is_also_understood():
     got = parse_title_block_tolerances(".XX ±.06  .XXX ±.01 ANGLES ±2°")
     assert got["two_place"] == pytest.approx(.06)
@@ -43,10 +80,10 @@ def test_actual_drawing_tolerance_note_left_of_title_box_is_detected(tmp_path):
         # Tolerance notes occupy lower LEFT, not lower right.
         for index, line in enumerate([
             "UNLESS OTHERWISE SPECIFIED: DIMENSIONS ARE IN INCHES",
-            "FRACTIONAL +/- 1/16",
-            "ANGULAR: MACH +/- .5 deg BEND +/- 1 deg",
-            "TWO PLACE DECIMAL +/- 0.06",
-            "THREE PLACE DECIMAL +/- 0.01",
+            "FRACTIONAL 1/16",
+            "ANGULAR: MACH .5 BEND 1",
+            "TWO PLACE DECIMAL 0.06",
+            "THREE PLACE DECIMAL 0.01",
             "TITLE: GENERIC FORMED SAMPLE",
             "SCALE 1:2",
         ]):
