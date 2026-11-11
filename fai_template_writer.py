@@ -93,7 +93,8 @@ def _row_values(characteristic: Any) -> dict[str, Any]:
         "Type": _safe_cell_value(characteristic, "type"),
         "Inspection Actual": _safe_cell_value(characteristic, "actual", ""),
         "Tooling Used": _safe_cell_value(characteristic, "tooling", ""),
-        # Extraction/operator notes are diagnostics, NEVER inserted in the FAI report.\n        "Comments": "",
+        # Extraction/operator notes are diagnostics, NEVER inserted in the FAI report.
+        "Comments": "",
     }
 
 
