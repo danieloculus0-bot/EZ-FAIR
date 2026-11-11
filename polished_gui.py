@@ -19,6 +19,7 @@ from extractor_active import (
 from fai_template_writer import fill_fai_template_pages, template_row_capacity
 from ez_fair_enhancements import extract_pdf_dimensions_enhanced
 from local_test_runner import write_extraction_summary
+from default_fai_template import resolve_default_template, save_default_template, reset_default_template
 
 APP_NAME = "EZ-FAIR"
 APP_SUBTITLE = "First Article Inspection Builder"
@@ -40,9 +41,9 @@ class EzFairApp(tk.Tk):
         self.configure(bg=APP_BG)
 
         self.pdf_path = tk.StringVar()
-        self.template_path = tk.StringVar()
+        self.template_path = tk.StringVar(value=str(resolve_default_template()))
         self.output_dir = tk.StringVar(value=str(Path.cwd() / "local_outputs"))
-        self.status_text = tk.StringVar(value="Ready. Pick a PDF and FAI template, then extract.")
+        self.status_text = tk.StringVar(value="Ready. Select a PDF; built-in Excel FAI form is preselected.")
         self.characteristics: list[Characteristic] = []
         self.generated_outputs: dict[str, Path] = {}
         self._busy = False
@@ -117,6 +118,7 @@ class EzFairApp(tk.Tk):
         ttk.Button(actions, text="Generate Outputs", command=self.generate_outputs).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(actions, text="Delete Selected Rows", command=self.delete_selected).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(actions, text="Clear", command=self.clear_table).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(actions, text="Use Built-In FAI", command=self.use_builtin_template).pack(side=tk.LEFT, padx=(8, 0))
 
         mid = ttk.Frame(root, style="Root.TFrame")
         mid.pack(fill=tk.BOTH, expand=True)
@@ -181,7 +183,12 @@ class EzFairApp(tk.Tk):
     def pick_template(self) -> None:
         path = filedialog.askopenfilename(title="Select FAI Excel template", filetypes=[("Excel templates", "*.xlsx *.xlsm"), ("All files", "*.*")])
         if path:
-            self.template_path.set(path)
+            self.template_path.set(str(save_default_template(path)))
+            self.log("Default FAI template set to local file. The source remains on this computer.")
+
+    def use_builtin_template(self) -> None:
+        self.template_path.set(str(reset_default_template()))
+        self.log("Built-in neutral Excel FAI template restored.")
 
     def pick_output_dir(self) -> None:
         path = filedialog.askdirectory(title="Select output folder")
