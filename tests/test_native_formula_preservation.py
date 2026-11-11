@@ -106,3 +106,17 @@ def test_native_master_is_not_reformatted_or_extended_for_overflow(tmp_path):
     with pytest.raises(ValueError, match="holds 25 characteristics"):
         fill_fai_template(original, [Characteristic(char_number=i) for i in range(26)], output)
     assert not output.exists()
+
+
+def test_unverified_default_conflicting_with_master_is_not_a_false_pass(tmp_path):
+    original, output = tmp_path / "master.xlsx", tmp_path / "filled.xlsx"
+    build_native_formula_form(original)
+    char = Characteristic(metadata={"tolerance_status": "default"})
+    fill_fai_template(original, [char], output)
+    book = load_workbook(output, data_only=False)
+    ws = book["FAI FORM"]
+    assert ws["C24"].value == "=D24-0.06"
+    assert ws["E24"].value == "=D24+0.06"
+    assert ws["K24"].value.startswith('=IF(TRUE,"REVIEW REQUIRED",')
+    assert "Template limits differ" in ws["N24"].value
+    book.close()
