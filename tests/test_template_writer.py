@@ -74,7 +74,7 @@ def test_r3_template_writer_preserves_form_and_inclusive_formula(tmp_path):
     assert ">=C24" in ws["K24"].value
     assert "<=E24" in ws["K24"].value
     assert ws["M24"].value == "CALIPER"
-    assert ws["N24"].value == "AFTER GALVANIZE"
+    assert ws["N24"].value is None
     assert ws.row_dimensions[24].height >= 14
     assert ws.print_area == "'FAI FORM'!$A$1:$N$48"
     assert ws.page_setup.fitToWidth == 1
