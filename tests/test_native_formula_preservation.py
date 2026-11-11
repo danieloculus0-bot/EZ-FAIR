@@ -80,8 +80,8 @@ def test_native_master_keeps_its_image_styles_formulas_and_print_layout(tmp_path
     assert after["C24"].value == "=D24-0.02"
     assert after["E24"].value == "=D24+0.02"
     assert after["K24"].value == before["K24"].value
-    assert after["C25"].value == before["C25"].value
-    assert after["E25"].value == before["E25"].value
+    assert after["C25"].value is None  # no default on unpopulated rows
+    assert after["E25"].value is None  # master itself keeps its formulas
     assert after["K25"].value == before["K25"].value
     source.close()
     changed.close()
@@ -94,8 +94,8 @@ def test_unverified_limits_keep_formula_and_never_report_pass(tmp_path):
     fill_fai_template(original, [char], output)
     book = load_workbook(output, data_only=False)
     ws = book["FAI FORM"]
-    assert ws["C24"].value == "=D24-0.06"
-    assert ws["E24"].value == "=D24+0.06"
+    assert ws["C24"].value is None
+    assert ws["E24"].value is None
     assert ws["K24"].value == '=IF(AND(J24>C24,J24<E24),"X","")'
     assert ws["N24"].value is None
     book.close()
@@ -116,8 +116,8 @@ def test_unverified_default_conflicting_with_master_is_not_a_false_pass(tmp_path
     fill_fai_template(original, [char], output)
     book = load_workbook(output, data_only=False)
     ws = book["FAI FORM"]
-    assert ws["C24"].value == "=D24-0.06"
-    assert ws["E24"].value == "=D24+0.06"
+    assert ws["C24"].value is None
+    assert ws["E24"].value is None
     assert ws["K24"].value == '=IF(AND(J24>C24,J24<E24),"X","")'
     assert ws["N24"].value is None
     book.close()
@@ -205,16 +205,19 @@ def test_detected_three_place_print_tolerance_updates_only_limit_formulas(tmp_pa
         Characteristic(char_number=1, nominal=17.000, lsl=16.990,
                        usl=17.010, raw_text="17.000", comments="BAD DIAGNOSTIC",
                        metadata={"tolerance_status": "default", "title_block_detected": source_rules,
-                                 "review_required": True}),
+                                 "review_required": True, "tolerance_source": "drawing_title_block"}),
         Characteristic(char_number=2, nominal=.320, lsl=.310, usl=.330,
                        type="RADIUS", raw_text="R.320",
-                       metadata={"tolerance_status": "default", "title_block_detected": source_rules}),
+                       metadata={"tolerance_status": "default", "title_block_detected": source_rules,
+                                 "tolerance_source": "drawing_title_block"}),
         Characteristic(char_number=3, nominal=135.0, lsl=134.0, usl=136.0,
                        type="°", raw_text="135.000°",
-                       metadata={"tolerance_status": "default", "title_block_detected": source_rules}),
+                       metadata={"tolerance_status": "default", "title_block_detected": source_rules,
+                                 "tolerance_source": "drawing_title_block"}),
         Characteristic(char_number=4, nominal=2.25, lsl=2.19, usl=2.31,
                        raw_text="2.25",
-                       metadata={"tolerance_status": "default", "title_block_detected": source_rules}),
+                       metadata={"tolerance_status": "default", "title_block_detected": source_rules,
+                                 "tolerance_source": "drawing_title_block"}),
     ]
     fill_fai_template(original, chars, output)
     assert before == sha256(original.read_bytes()).hexdigest()
@@ -235,3 +238,27 @@ def test_detected_three_place_print_tolerance_updates_only_limit_formulas(tmp_pa
     assert form["D24"].value == 17.0
     original_book.close()
     output_book.close()
+
+
+
+def test_no_inherited_tolerances_on_any_report_row_if_unknown(tmp_path):
+    source = tmp_path / "master.xlsx"
+    output = tmp_path / "filled.xlsx"
+    build_native_formula_form(source)
+    original_hash = sha256(source.read_bytes()).hexdigest()
+    char = Characteristic(nominal=17.0, lsl=16.94, usl=17.06,
+                          raw_text="17.000",
+                          metadata={"tolerance_status": "default",
+                                    "title_block_detected": {},
+                                    "tolerance_source": "unknown"})
+    fill_fai_template(source, [char], output)
+    wb = load_workbook(output, data_only=False)
+    ws = wb["FAI FORM"]
+    for row in range(24, 49):
+        assert ws[f"C{row}"].value is None
+        assert ws[f"E{row}"].value is None
+        assert ws[f"K{row}"].data_type == "f"
+        assert ws[f"N{row}"].value is None
+    assert ws["D24"].value == 17.0
+    wb.close()
+    assert sha256(source.read_bytes()).hexdigest() == original_hash
