@@ -134,6 +134,61 @@ def reconcile_characteristics(
     return results
 
 
+def _title_block_top(page: Any) -> float | None:
+    """Find an explicitly labeled bottom title block using native PDF text.
+
+    A lower-page numerical dimension remains eligible unless at least two
+    distinct document-admin markers establish a title block. Restrict the
+    cutoff to the bottom 28% to protect low-positioned detail views.
+    """
+    import re
+
+    markers: dict[str, float] = {}
+    doc_terms = (
+        ("proprietary", r"\bPROPRIETARY\b"),
+        ("drawing_id", r"\b(?:DWG|DRAWING)\s*(?:NO|NUMBER)\b"),
+        ("sheet", r"\bSHEET\b"),
+        ("scale", r"\bSCALE\b"),
+        ("approval", r"\b(?:DRAWN|APPROVED)\b"),
+        ("title", r"\bTITLE\s*:"),
+        ("general_tolerances", r"\b(?:UNLESS\s+OTHERWISE|TWO\s+PLACE|THREE\s+PLACE|DECIMAL\s+TOLERANCE)\b"),
+    )
+    min_start = page.rect.height * 0.72
+    data = page.get_text("dict")
+    for block in data.get("blocks", []):
+        for line in block.get("lines", []):
+            text = " ".join(str(span.get("text", "")) for span in line.get("spans", []))
+            top = float(line.get("bbox", (0, 0, 0, 0))[1])
+            if top < min_start:
+                continue
+            for key, pattern in doc_terms:
+                if re.search(pattern, text, re.I):
+                    markers[key] = min(markers.get(key, top), top)
+    if len(markers) < 2:
+        return None
+    return max(min_start, min(markers.values()) - 8)
+
+
+def _remove_title_block_candidates(
+    pdf_path: Path,
+    vector_candidates: list[Any],
+    ocr_candidates: list[Any],
+) -> tuple[list[Any], list[Any]]:
+    """Do not balloon numeric values from explicitly identified title blocks."""
+    import pymupdf as fitz
+
+    with fitz.open(pdf_path) as doc:
+        cutoff_by_page = {i: _title_block_top(page) for i, page in enumerate(doc)}
+
+    def keep(candidate: Any) -> bool:
+        cutoff = cutoff_by_page.get(candidate.page_index)
+        return cutoff is None or float(candidate.rect[1]) < cutoff
+
+    return [item for item in vector_candidates if keep(item)], [
+        item for item in ocr_candidates if keep(item)
+    ]
+
+
 def extract_pdf_dimensions_hybrid(pdf_path: str | Path, settings: Any = None) -> list[native.Characteristic]:
     """Read native PDF and OCR independently, then reconcile by evidence."""
     from ez_fair_enhancements import (
@@ -172,6 +227,9 @@ def extract_pdf_dimensions_hybrid(pdf_path: str | Path, settings: Any = None) ->
             ocr_error = str(exc)
     if not vectors and not ocrs and ocr_error:
         raise RuntimeError(ocr_error)
+    # Preserve title-block tolerance text for default detection, but never
+    # promote its numeric fragments to inspection/balloon characteristics.
+    vectors, ocrs = _remove_title_block_candidates(source, vectors, ocrs)
     combined = reconcile_characteristics(vectors, ocrs)
     try:
         gdts = extract_gdt_characteristics(source, len(combined) + 1, settings)
