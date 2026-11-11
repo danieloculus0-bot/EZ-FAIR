@@ -114,12 +114,16 @@ def _duplicate(chars: list[Characteristic], page_i: int, typ: str, nominal: floa
 
 
 def _title_noise(page: fitz.Page, rect: fitz.Rect, line: str, near: str) -> bool:
-    blob = f"{line} {near}"
-    if rect.y0 > page.rect.height * 0.70 and TITLE_SKIP.search(blob):
+    # The 72-point context window can extend from a legitimate low-positioned
+    # detail dimension into the adjacent title block. Do not discard .480 or
+    # R.320 merely because an unrelated nearby label says THICKNESS / DATE.
+    # A separately identified title-block region is filtered in the hybrid
+    # reconciler, while this check concerns the candidate's own text only.
+    if rect.y0 > page.rect.height * 0.70 and TITLE_SKIP.search(line):
         return True
-    if re.search(r"\b(?:TWO|THREE|ONE) PLACE DECIMAL\b", blob, re.I):
+    if re.search(r"\b(?:TWO|THREE|ONE) PLACE DECIMAL\b", line, re.I):
         return True
-    if re.search(r"\bSHEET\s+\d+\s+(?:OF|/)\s+\d+\b", blob, re.I):
+    if re.search(r"\bSHEET\s+\d+\s+(?:OF|/)\s+\d+\b", line, re.I):
         return True
     return False
 
@@ -165,7 +169,6 @@ def extract_pdf_dimensions(pdf_path: str | Path) -> list[Characteristic]:
         if rev:
             meta["revision"] = rev.group(1).strip()
         for page_i, page in enumerate(doc):
-            before_count = len(chars)
             lines = list(base._line_groups(page))
             for line, line_rect, words in lines:
                 if line_rect.y0 > page.rect.height * 0.70 and TITLE_SKIP.search(line):
@@ -187,15 +190,26 @@ def extract_pdf_dimensions(pdf_path: str | Path) -> list[Characteristic]:
                     near = base._nearby_text(page, rect)
                     forced_type = _type_for_match(raw, line, near, match)
                     _add(chars, skipped, page, page_i, raw, value, rect, line, near, comment, meta, forced_type, binding.context, binding.status)
-            if len(chars) == before_count:
-                for line, line_rect in base._iter_text_spans(page):
-                    for binding in bind_tolerances(line, DIM_RE):
-                        match = binding.match
-                        raw = _decorated_raw(line, match)
-                        rect = base._match_rect_from_words(line, line_rect, [], match)
-                        near = base._nearby_text(page, rect)
-                        forced_type = _type_for_match(raw, line, near, match)
-                        _add(chars, skipped, page, page_i, raw, match.group("num"), rect, line, near, comment, meta, forced_type, binding.context, binding.status)
+            # Run span recovery for EVERY page, not only when the entire
+            # words pass found zero dimensions. Mixed CAD PDFs often expose
+            # most dimensions as words but leave isolated rotated/radius
+            # callouts only in text spans. Existing same-page/same-location
+            # deduplication prevents additional balloons on matches.
+            for line, line_rect in base._iter_text_spans(page):
+                for binding in bind_tolerances(line, DIM_RE):
+                    match = binding.match
+                    raw = _decorated_raw(line, match)
+                    if base._is_count_prefix(line, match):
+                        continue
+                    value = match.group("num")
+                    forced_type = _type_for_match(raw, line, "", match)
+                    has_symbol = raw.startswith(("Ø", "R")) or forced_type == "DIAMETER" or bool((match.group("suffix") or "").strip())
+                    if not ("." in value or has_symbol or DIM_CONTEXT.search(line) or base.TOLERANCE_PATTERN.search(line)):
+                        continue
+                    rect = base._match_rect_from_words(line, line_rect, [], match)
+                    near = base._nearby_text(page, rect)
+                    forced_type = _type_for_match(raw, line, near, match)
+                    _add(chars, skipped, page, page_i, raw, value, rect, line, near, comment, meta, forced_type, binding.context, binding.status)
     for i, c in enumerate(chars, 1):
         c.char_number = i
     base.LAST_EXTRACTION_DEBUG["skipped"] = skipped
