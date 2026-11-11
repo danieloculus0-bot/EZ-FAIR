@@ -343,7 +343,7 @@ def _verified_title_default(characteristic: Any, metadata: dict[str, Any]) -> bo
         return "angular" in detected or "angular_bend" in detected or "angular_mach" in detected
     if "/" in raw and "." not in raw:
         return "fractional" in detected
-    decimal = re.search(r"\\.(\\d+)", raw)
+    decimal = re.search(r"\.(\d+)", raw)
     if decimal:
         return ("three_place" if len(decimal.group(1)) >= 3 else "two_place") in detected
     return False
