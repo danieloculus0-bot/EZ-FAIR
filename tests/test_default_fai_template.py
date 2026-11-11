@@ -106,5 +106,6 @@ def test_batch_mode_can_use_builtin_without_template_argument(tmp_path, monkeypa
     assert form.exists()
     assert debug.exists()
     assert any(c.nominal == 17.0 for c in chars)
-    with load_workbook(form, data_only=False) as book:
-        assert book["FAI FORM"]["K24"].data_type == "f"
+    book = load_workbook(form, data_only=False)
+    assert book["FAI FORM"]["K24"].data_type == "f"
+    book.close()
