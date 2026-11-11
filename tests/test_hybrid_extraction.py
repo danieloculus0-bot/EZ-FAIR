@@ -88,3 +88,52 @@ def test_ocr_failure_keeps_valid_native_dimensions(monkeypatch):
     assert len(result) == 1
     assert result[0].nominal == 1.25
     assert "Tesseract" in result[0].metadata["ocr_unavailable"]
+
+
+
+def test_title_block_numbers_are_not_inspection_characteristics(tmp_path):
+    """Synthetic labelled title block must not generate false balloons."""
+    import pymupdf as fitz
+    from hybrid_extraction import _remove_title_block_candidates
+    pdf = tmp_path / "synthetic-title-block.pdf"
+    with fitz.open() as doc:
+        page = doc.new_page(width=792, height=612)
+        page.insert_text((100, 120), "17.000", fontsize=12)
+        page.insert_text((320, 410), "0.375", fontsize=12)
+        page.insert_text((500, 520), "TITLE: BRACKET", fontsize=10)
+        page.insert_text((500, 543), "SCALE 1:2", fontsize=10)
+        page.insert_text((500, 566), "THREE PLACE DECIMAL 0.005", fontsize=10)
+        doc.save(pdf)
+    good = dim(n=17.0, y=120)
+    low_detail = dim(n=0.375, y=408)
+    admin = dim(n=0.005, y=554)
+    native, ocr = _remove_title_block_candidates(pdf, [good, admin], [low_detail, admin])
+    assert native == [good]
+    assert ocr == [low_detail]
+
+
+def test_unmarked_low_detail_is_not_excluded(tmp_path):
+    import pymupdf as fitz
+    from hybrid_extraction import _remove_title_block_candidates
+    pdf = tmp_path / "no-title.pdf"
+    with fitz.open() as doc:
+        page = doc.new_page(width=792, height=612)
+        page.insert_text((100, 530), "0.375", fontsize=12)
+        doc.save(pdf)
+    low_detail = dim(n=0.375, y=510)
+    native, ocr = _remove_title_block_candidates(pdf, [low_detail], [low_detail])
+    assert native == [low_detail]
+    assert ocr == [low_detail]
+
+
+def test_radius_not_reclassified_as_angle_by_adjacent_degree_symbol():
+    from extractor_precision_patch import classify_dimension, _decorated_raw, _type_for_match
+    from extractor_engine import DIMENSION_PATTERN
+    line = "UP 19.86° R .32"
+    bindings = [m for m in DIMENSION_PATTERN.finditer(line) if m.group("num") == ".32"]
+    assert len(bindings) == 1
+    raw = _decorated_raw(line, bindings[0])
+    assert classify_dimension(raw, line) == "RADIUS"
+    assert _type_for_match(raw, line, "", bindings[0]) == "RADIUS"
+    assert classify_dimension("R19.86", line) == "RADIUS"
+    assert classify_dimension(".32", "UP 19.86° AND .32") != "°"
