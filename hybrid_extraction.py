@@ -23,9 +23,14 @@ def _nearby(a: Any, b: Any) -> bool:
         return False
     ax, ay = _center(a)
     bx, by = _center(b)
-    # Tight physical location matching, not a full-page or OCR-text overlap
-    # filter. Repeated equal dimensions elsewhere on the page must survive.
-    return abs(ax - bx) <= 11 and abs(ay - by) <= 11
+    aw, ah = abs(a.rect[2] - a.rect[0]), abs(a.rect[3] - a.rect[1])
+    bw, bh = abs(b.rect[2] - b.rect[0]), abs(b.rect[3] - b.rect[1])
+    # OCR boxes often shift 10-20 points relative to native CAD text, while
+    # measurements repeated elsewhere on a drawing are usually much farther
+    # apart. Bound this tolerance so unrelated annotations never merge.
+    max_dx = max(11.0, min(26.0, (aw + bw) / 2))
+    max_dy = max(11.0, min(18.0, (ah + bh) / 2 + 5.0))
+    return abs(ax - bx) <= max_dx and abs(ay - by) <= max_dy
 
 
 def _same_nominal(a: Any, b: Any) -> bool:
