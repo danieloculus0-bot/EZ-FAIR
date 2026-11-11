@@ -31,17 +31,26 @@ def _decorated_raw(line: str, match: re.Match[str]) -> str:
 
 
 def classify_dimension(text: str, context: str = "") -> str:
-    blob = f"{text or ''} {context or ''}"
-    if "°" in blob or "º" in blob or re.search(r"\bdeg\.?\b", blob, re.I):
-        return "°"
-    if "Ø" in text or "⌀" in text or re.search(r"\b(?:DIA|DIAMETER)\b", blob, re.I):
-        return "DIAMETER"
-    if re.match(r"\s*[Rr]\s*\.?\d", text or "") or re.search(r"\b(?:RADIUS|RAD)\b", blob, re.I):
+    """Classify the candidate itself before considering neighboring callouts.
+
+    Drawings often place angles beside radius/linear callouts on the same
+    graphical line. A nearby degree sign must not turn R.320 into 0.320 degrees.
+    """
+    raw = (text or "").replace("⌀", "Ø").replace("º", "°")
+    if re.match(r"^\s*[Rr]\s*\.?\d", raw):
         return "RADIUS"
-    if base.WELD_PATTERN.search(blob):
+    if "Ø" in raw:
+        return "DIAMETER"
+    if "°" in raw or re.search(r"\bdeg\.?\s*$", raw, re.I):
+        return "°"
+    context = context or ""
+    if re.search(r"\b(?:RADIUS|RAD)\b", context, re.I) and "°" not in context:
+        return "RADIUS"
+    if re.search(r"\b(?:DIA|DIAMETER)\b", context, re.I) and "°" not in context:
+        return "DIAMETER"
+    if base.WELD_PATTERN.search(raw):
         return "WELD"
     return "LINEAR"
-
 
 def _type_for_match(raw: str, line: str, near: str, match: re.Match[str]) -> str:
     """Classify with slot and thru-hole context.
@@ -54,6 +63,11 @@ def _type_for_match(raw: str, line: str, near: str, match: re.Match[str]) -> str
     direct = classify_dimension(raw, line)
     if direct != "LINEAR":
         return direct
+    # Some CAD encodings detach the radius symbol from the numeric span.
+    # Only an immediately adjacent R denotes a radius, not a remote R on
+    # the same line that might annotate a separate feature.
+    if re.search(r"\bR\s*$", line[max(0, match.start() - 5):match.start()], re.I):
+        return "RADIUS"
 
     before = line[max(0, match.start() - 14):match.start()]
     after = line[match.end():match.end() + 40]

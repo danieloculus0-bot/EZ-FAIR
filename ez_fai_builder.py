@@ -789,14 +789,16 @@ class EZFAIBuilderApp(tk.Tk):
             for characteristic in self.characteristics:
                 characteristic.metadata["drawing_name"] = self.pdf_path.stem
             balloon_path = self.pdf_path.with_name(f"{self.pdf_path.stem}_BALLOONED.pdf")
-            fai_path = self.pdf_path.with_name(f"{self.pdf_path.stem}_FAI.xlsx")
+            suffix = ".xlsm" if self.template_path.suffix.lower() == ".xlsm" else ".xlsx"
+            fai_path = self.pdf_path.with_name(f"{self.pdf_path.stem}_FAI{suffix}")
             debug_path = self.pdf_path.with_name("EZ_FAI_DEBUG_REPORT.txt")
-            from fai_template_writer import fill_fai_template as fill_preserved_template
+            from fai_template_writer import fill_fai_template_pages
+            excel_forms = fill_fai_template_pages(self.template_path, self.characteristics, fai_path)
             add_pdf_balloons(self.pdf_path, self.characteristics, balloon_path)
-            fill_preserved_template(self.template_path, self.characteristics, fai_path)
             write_debug_report(self.pdf_path, self.template_path, self.characteristics, debug_path)
-            self.status.set(f"Created: {balloon_path.name}, {fai_path.name}, and {debug_path.name}")
-            messagebox.showinfo("Outputs created", f"Created:\n{balloon_path}\n{fai_path}\n{debug_path}")
+            form_paths = "\n".join(str(path) for path in excel_forms)
+            self.status.set(f"Created ballooned PDF, {len(excel_forms)} Excel form(s), and debug report.")
+            messagebox.showinfo("Outputs created", f"Created:\n{balloon_path}\n{form_paths}\n{debug_path}")
         except Exception as exc:  # GUI boundary: show recoverable error to user.
             self.status.set("Output generation failed")
             messagebox.showerror("Output generation failed", str(exc))
@@ -811,13 +813,14 @@ def generate_outputs_for_files(pdf_path: str | Path, template_path: str | Path) 
     for characteristic in characteristics:
         characteristic.metadata["drawing_name"] = pdf_path.stem
     balloon_path = pdf_path.with_name(f"{pdf_path.stem}_BALLOONED.pdf")
-    fai_path = pdf_path.with_name(f"{pdf_path.stem}_FAI.xlsx")
+    suffix = ".xlsm" if template_path.suffix.lower() == ".xlsm" else ".xlsx"
+    fai_path = pdf_path.with_name(f"{pdf_path.stem}_FAI{suffix}")
     debug_path = pdf_path.with_name("EZ_FAI_DEBUG_REPORT.txt")
-    from fai_template_writer import fill_fai_template as fill_preserved_template
+    from fai_template_writer import fill_fai_template_pages
+    excel_forms = fill_fai_template_pages(template_path, characteristics, fai_path)
     add_pdf_balloons(pdf_path, characteristics, balloon_path)
-    fill_preserved_template(template_path, characteristics, fai_path)
     write_debug_report(pdf_path, template_path, characteristics, debug_path)
-    return balloon_path, fai_path, debug_path, characteristics
+    return balloon_path, excel_forms[0], debug_path, characteristics
 
 
 def launch_gui() -> None:

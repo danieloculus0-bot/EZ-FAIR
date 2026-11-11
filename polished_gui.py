@@ -16,7 +16,7 @@ from extractor_active import (
     get_last_skipped_candidates,
     write_debug_report,
 )
-from fai_template_writer import fill_fai_template, template_row_capacity
+from fai_template_writer import fill_fai_template_pages, template_row_capacity
 from ez_fair_enhancements import extract_pdf_dimensions_enhanced
 from local_test_runner import write_extraction_summary
 
@@ -224,7 +224,8 @@ class EzFairApp(tk.Tk):
                 skipped = len(get_last_skipped_candidates())
                 self.after(0, lambda: self._load_extraction(chars, capacity, skipped))
             except Exception as exc:
-                self.after(0, lambda: self._show_error("Extraction failed", exc))
+                error_text = str(exc)
+                self.after(0, lambda message=error_text: self._show_error("Extraction failed", message))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -326,14 +327,19 @@ class EzFairApp(tk.Tk):
                 fai = output_dir / f"{pdf.stem}_FAI{suffix}"
                 debug = output_dir / "EZ_FAI_DEBUG_REPORT.txt"
                 summary = output_dir / "EXTRACTION_SUMMARY.txt"
+                excel_forms = fill_fai_template_pages(template, self.characteristics, fai)
                 add_pdf_balloons(pdf, self.characteristics, ballooned)
-                fill_fai_template(template, self.characteristics, fai)
                 write_debug_report(pdf, template, self.characteristics, debug)
                 write_extraction_summary(summary, self.characteristics, get_last_skipped_candidates(), template_row_capacity(template))
-                outputs = {"Ballooned PDF": ballooned, "FAI Excel": fai, "Debug report": debug, "Extraction summary": summary}
+                outputs = {"Ballooned PDF": ballooned}
+                for index, form_path in enumerate(excel_forms, start=1):
+                    label = "FAI Excel" if len(excel_forms) == 1 else f"FAI Excel {index}/{len(excel_forms)}"
+                    outputs[label] = form_path
+                outputs.update({"Debug report": debug, "Extraction summary": summary})
                 self.after(0, lambda: self._outputs_done(outputs))
             except Exception as exc:
-                self.after(0, lambda: self._show_error("Output generation failed", exc))
+                error_text = str(exc)
+                self.after(0, lambda message=error_text: self._show_error("Output generation failed", message))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -343,9 +349,10 @@ class EzFairApp(tk.Tk):
         for label, path in outputs.items():
             self.output_list.insert(tk.END, f"{label}: {path.name}")
         self.set_busy(False)
-        self.log("Outputs generated successfully. Double-click an output to open it.")
+        count = sum(label.startswith("FAI Excel") for label in outputs)
+        self.log(f"Outputs generated successfully; {count} original-format Excel form(s). Double-click an output to open it.")
 
-    def _show_error(self, title: str, exc: Exception) -> None:
+    def _show_error(self, title: str, exc: Exception | str) -> None:
         self.set_busy(False)
         self.log(f"{title}: {exc}")
         messagebox.showerror(APP_NAME, f"{title}:\n\n{exc}")

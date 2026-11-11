@@ -348,7 +348,7 @@ def _fill_formula_master(ws, characteristics: list[Any]) -> int:
         row = R3_START_ROW + offset
         values = _row_values(characteristic)
         metadata = _characteristic_metadata(characteristic)
-        ws.cell(row, R3_COLUMNS["Char Number"]).value = offset + 1
+        ws.cell(row, R3_COLUMNS["Char Number"]).value = _safe_cell_value(characteristic, "char_number", offset + 1)
         ws.cell(row, R3_COLUMNS["Reference Location"]).value = values["Reference Location"]
         ws.cell(row, R3_COLUMNS["Requirement Nominal"]).value = values["Requirement Nominal"]
         ws.cell(row, R3_COLUMNS["Type"]).value = values["Type"]
@@ -492,3 +492,58 @@ def fill_fai_template(template_path: str | Path, characteristics: Iterable[Any],
     wb.save(output_path)
     wb.close()
     return output_path
+
+
+
+def fill_fai_template_pages(
+    template_path: str | Path,
+    characteristics: Iterable[Any],
+    output_path: str | Path,
+) -> list[Path]:
+    """Export as many original controlled forms as necessary, unchanged in layout.
+
+    Each page is loaded from the same original workbook, so logos, existing
+    formulas, merged cells, sheet names, print settings and all formatting are
+    preserved. A controlled 25-row form is NEVER expanded or reconstructed.
+    Characteristic numbers remain global and match balloons across pages.
+    Generic templates with variable row counts retain their existing behavior.
+    """
+    template_path = Path(template_path)
+    output_path = Path(output_path)
+    chars = list(characteristics)
+    if output_path.resolve() == template_path.resolve():
+        raise ValueError("FAI Excel output cannot overwrite the original template.")
+
+    book = load_workbook(template_path, read_only=False, data_only=False)
+    try:
+        is_controlled = _is_formula_master(_pick_sheet(book))
+    finally:
+        book.close()
+    if not is_controlled or len(chars) <= R3_TEMPLATE_CAPACITY:
+        return [fill_fai_template(template_path, chars, output_path)]
+
+    page_count = (len(chars) + R3_TEMPLATE_CAPACITY - 1) // R3_TEMPLATE_CAPACITY
+    files = [
+        output_path.with_name(
+            f"{output_path.stem}_FORM_{part:02d}_of_{page_count:02d}{output_path.suffix}"
+        )
+        for part in range(1, page_count + 1)
+    ]
+    # Don't overwrite any source template or previous results unintentionally.
+    if any(path.resolve() == template_path.resolve() for path in files):
+        raise ValueError("A paginated output path would overwrite the original template.")
+    created: list[Path] = []
+    try:
+        for part, path in enumerate(files):
+            batch = chars[part * R3_TEMPLATE_CAPACITY:(part + 1) * R3_TEMPLATE_CAPACITY]
+            fill_fai_template(template_path, batch, path)
+            created.append(path)
+    except Exception:
+        # No incomplete export series left looking like a successful set.
+        for path in created:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        raise
+    return created
