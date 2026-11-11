@@ -141,7 +141,7 @@ def test_more_than_25_characteristics_produces_one_workbook_with_form_tabs(tmp_p
 
     book = load_workbook(target, data_only=False)
     tabs = ["FAI FORM", "FAI FORM 2", "FAI FORM 3"]
-    assert [x for x in book.sheetnames if x.startswith("FAI FORM")] == tabs
+    assert book.sheetnames[:3] == tabs
     for tab, expected_first, expected_last in zip(
         tabs, [1, 26, 51], [25, 50, 58]
     ):
