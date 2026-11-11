@@ -66,8 +66,11 @@ def test_native_master_keeps_its_image_styles_formulas_and_print_layout(tmp_path
     assert changed.sheetnames == source.sheetnames
     assert {str(x) for x in after.merged_cells.ranges} == {str(x) for x in before.merged_cells.ranges}
     assert len(after._images) == len(before._images) == 1
-    assert after["A3"].fill == before["A3"].fill
-    assert after["A3"].font == before["A3"].font
+    # openpyxl StyleProxy objects do not implement cross-cell equality.
+    assert after["A3"].fill.patternType == before["A3"].fill.patternType
+    assert after["A3"].fill.fgColor.rgb == before["A3"].fill.fgColor.rgb
+    assert after["A3"].font.bold == before["A3"].font.bold
+    assert after["A3"].font.color.rgb == before["A3"].font.color.rgb
     assert after.print_area == before.print_area
     assert after.page_setup.orientation == before.page_setup.orientation
     assert after["B8"].value == "operator enters date"
