@@ -4,6 +4,7 @@ from __future__ import annotations
 import extractor_active as native
 import ez_fair_enhancements as enhanced
 from hybrid_extraction import reconcile_characteristics, extract_pdf_dimensions_hybrid
+import hybrid_extraction as hybrid
 
 
 def dim(n=1.25, x=60.0, y=80.0, typ="LINEAR", limits=None, status="explicit"):
@@ -69,6 +70,7 @@ def test_both_paths_run_even_when_vector_finds_dimensions(monkeypatch):
         return [dim()]
     monkeypatch.setattr(enhanced, "_extract_from_ocr", ocr)
     monkeypatch.setattr(enhanced, "extract_gdt_characteristics", lambda *_args: [])
+    monkeypatch.setattr(hybrid, "_remove_title_block_candidates", lambda _p, v, o: (v, o))
     settings = enhanced.ExtractionSettings(
         auto_detect_title_block=False, enable_ocr_fallback=True
     )
@@ -83,6 +85,7 @@ def test_ocr_failure_keeps_valid_native_dimensions(monkeypatch):
         raise RuntimeError("Tesseract unavailable")
     monkeypatch.setattr(enhanced, "_extract_from_ocr", failed_ocr)
     monkeypatch.setattr(enhanced, "extract_gdt_characteristics", lambda *_args: [])
+    monkeypatch.setattr(hybrid, "_remove_title_block_candidates", lambda _p, v, o: (v, o))
     settings = enhanced.ExtractionSettings(auto_detect_title_block=False)
     result = extract_pdf_dimensions_hybrid("synthetic-not-saved.pdf", settings)
     assert len(result) == 1
