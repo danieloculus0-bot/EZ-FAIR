@@ -275,13 +275,15 @@ def _is_formula_master(ws) -> bool:
     """
     if not _is_r3_form(ws):
         return False
-    formula_cells = sum(
-        isinstance(ws.cell(row, col).value, str)
-        and ws.cell(row, col).value.startswith("=")
+    # K-column pass/fail formulas also occur in ordinary R3 templates; only
+    # pre-existing paired C/E limit formulas identify the native formula master.
+    return any(
+        isinstance(ws.cell(row, 3).value, str)
+        and ws.cell(row, 3).value.startswith("=")
+        and isinstance(ws.cell(row, 5).value, str)
+        and ws.cell(row, 5).value.startswith("=")
         for row in range(R3_START_ROW, min(ws.max_row, R3_TEMPLATE_END_ROW) + 1)
-        for col in (3, 5, 11)
     )
-    return formula_cells >= 2
 
 
 def _update_native_bound_formula(ws, row: int, column: int, nominal: Any, limit: Any, status: str) -> None:
