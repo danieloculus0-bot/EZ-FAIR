@@ -495,7 +495,19 @@ def fill_fai_template(template_path: str | Path, characteristics: Iterable[Any],
 
 
 
-def _copy_controlled_form_sheet(book: Any, master: Any, part: int) -> Any:
+def _image_from_bytes(original: Any, content: bytes) -> Any:
+    """Give each copied Excel image its own independent, still-open stream."""
+    from io import BytesIO
+    from openpyxl.drawing.image import Image
+
+    fresh = Image(BytesIO(content))
+    fresh.anchor = copy.deepcopy(original.anchor)
+    fresh.width = original.width
+    fresh.height = original.height
+    return fresh
+
+
+def _copy_controlled_form_sheet(book: Any, master: Any, part: int, image_bytes: list[tuple[Any, bytes]]) -> Any:
     """Clone a pristine blank Excel form, including features copy_worksheet omits.
 
     openpyxl's copy_worksheet copies styled cells, merged ranges, row/column
@@ -523,10 +535,8 @@ def _copy_controlled_form_sheet(book: Any, master: Any, part: int) -> Any:
         continuation.print_title_rows = master.print_title_rows
     if master.print_title_cols:
         continuation.print_title_cols = master.print_title_cols
-    for graphic in master._images:
-        duplicated = copy.copy(graphic)
-        duplicated.anchor = copy.deepcopy(graphic.anchor)
-        continuation.add_image(duplicated)
+    for graphic, blob in image_bytes:
+        continuation.add_image(_image_from_bytes(graphic, blob))
     for chart in master._charts:
         continuation.add_chart(copy.deepcopy(chart))
     return continuation
@@ -562,10 +572,18 @@ def fill_fai_template_pages(
         else:
             native_master = _is_formula_master(master)
             count = max(1, (len(chars) + R3_TEMPLATE_CAPACITY - 1) // R3_TEMPLATE_CAPACITY)
+            # Every image must have a distinct underlying byte stream.
+            # openpyxl closes image streams while saving; a shallow copy would
+            # leave later images pointing to closed streams.
+            image_bytes = [(graphic, graphic._data()) for graphic in master._images]
+            if image_bytes:
+                master._images.clear()
+                for graphic, blob in image_bytes:
+                    master.add_image(_image_from_bytes(graphic, blob))
             # Clone before filling any pages, so later tabs remain pristine
             # instead of inheriting the first page's entered inspection data.
             sheets = [master] + [
-                _copy_controlled_form_sheet(book, master, part)
+                _copy_controlled_form_sheet(book, master, part, image_bytes)
                 for part in range(2, count + 1)
             ]
             for index, sheet in enumerate(sheets):
