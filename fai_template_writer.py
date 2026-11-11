@@ -517,6 +517,11 @@ def _copy_controlled_form_sheet(book: Any, master: Any, part: int, image_bytes: 
     """
     continuation = book.copy_worksheet(master)
     continuation.title = f"{master.title} {part}"
+    # Group all FAI pages as adjacent tabs, ahead of auxiliary list sheets.
+    book.move_sheet(
+        continuation,
+        offset=(book.index(master) + part - 1) - book.index(continuation),
+    )
     continuation.data_validations = copy.deepcopy(master.data_validations)
     continuation.conditional_formatting = copy.deepcopy(master.conditional_formatting)
     continuation.page_margins = copy.deepcopy(master.page_margins)
