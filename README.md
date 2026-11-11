@@ -39,7 +39,16 @@ print settings or unaffected formulas. Explicit drawing tolerances are written
 as Excel formulas referring to the nominal; conflicting/unverified defaults
 keep the original master formula and block automatic acceptance with REVIEW
 REQUIRED. The original template file is never overwritten. Master forms with
-a fixed 25-row body reject overflow rather than silently moving their footer.
+a fixed 25-row body never expand or move their footer. When more than 25
+characteristics are selected, the desktop and Python batch exporters create
+separate original-layout workbooks named `*_FORM_01_of_03.xlsx`,
+`*_FORM_02_of_03.xlsx`, etc., and preserve global characteristic numbers so
+Excel rows correspond to balloons across every form. The polished Windows
+workbench always releases its busy state and reports an error if an export
+fails. A distinct PDF-originated title-block zone filter reduces balloons on
+administrative tolerances while leaving drawing-area dimensions available.
+Radius and angle classification uses each callout's own glyphs rather than a
+neighboring dimension's degree sign.
 Do not upload private employer/customer templates into this public repository.
 These behaviors require an on-machine test with authorized local drawings and
 templates before being considered production-verified.
