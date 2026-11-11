@@ -157,3 +157,21 @@ def test_same_nominal_repeated_on_drawing_remains_two_characteristics():
     )
     assert len(results) == 2
     assert all(item.metadata["extraction_paths"] == ["native_pdf", "ocr"] for item in results)
+
+
+
+def test_small_radius_and_linear_dimensions_survive_native_pass(tmp_path):
+    """Small callouts must not be lost beside an angular drawing feature."""
+    import pymupdf as fitz
+    pdf = tmp_path / "synthetic-bend-callouts.pdf"
+    with fitz.open() as doc:
+        page = doc.new_page(width=792, height=612)
+        page.insert_text((80, 100), "17.000", fontsize=12)
+        page.insert_text((170, 160), ".480", fontsize=12)
+        page.insert_text((300, 160), "R.320", fontsize=12)
+        page.insert_text((420, 160), "135.000°", fontsize=12)
+        doc.save(pdf)
+    chars = native.extract_pdf_dimensions(pdf)
+    assert any(abs(float(c.nominal) - .480) < .00001 for c in chars)
+    assert any(abs(float(c.nominal) - .320) < .00001 and c.type == "RADIUS" for c in chars)
+    assert any(abs(float(c.nominal) - 135) < .00001 and c.type == "°" for c in chars)
