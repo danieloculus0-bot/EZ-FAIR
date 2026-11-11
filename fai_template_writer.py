@@ -495,55 +495,91 @@ def fill_fai_template(template_path: str | Path, characteristics: Iterable[Any],
 
 
 
+def _copy_controlled_form_sheet(book: Any, master: Any, part: int) -> Any:
+    """Clone a pristine blank Excel form, including features copy_worksheet omits.
+
+    openpyxl's copy_worksheet copies styled cells, merged ranges, row/column
+    dimensions, and more, but deliberately skips images/charts, validations,
+    conditional formatting and some printing properties. Preserve them here
+    because inspection forms can contain their own logo and native formulas.
+    """
+    continuation = book.copy_worksheet(master)
+    continuation.title = f"{master.title} {part}"
+    continuation.data_validations = copy.deepcopy(master.data_validations)
+    continuation.conditional_formatting = copy.deepcopy(master.conditional_formatting)
+    continuation.page_margins = copy.deepcopy(master.page_margins)
+    continuation.page_setup = copy.deepcopy(master.page_setup)
+    continuation.print_options = copy.deepcopy(master.print_options)
+    continuation.sheet_properties = copy.deepcopy(master.sheet_properties)
+    continuation.protection = copy.deepcopy(master.protection)
+    continuation.auto_filter = copy.deepcopy(master.auto_filter)
+    continuation.row_breaks = copy.deepcopy(master.row_breaks)
+    continuation.col_breaks = copy.deepcopy(master.col_breaks)
+    continuation.freeze_panes = master.freeze_panes
+    if master.print_area:
+        # Same fixed geometry, different tab name.
+        continuation.print_area = "A1:N48"
+    if master.print_title_rows:
+        continuation.print_title_rows = master.print_title_rows
+    if master.print_title_cols:
+        continuation.print_title_cols = master.print_title_cols
+    for graphic in master._images:
+        duplicated = copy.copy(graphic)
+        duplicated.anchor = copy.deepcopy(graphic.anchor)
+        continuation.add_image(duplicated)
+    for chart in master._charts:
+        continuation.add_chart(copy.deepcopy(chart))
+    return continuation
+
+
 def fill_fai_template_pages(
     template_path: str | Path,
     characteristics: Iterable[Any],
     output_path: str | Path,
 ) -> list[Path]:
-    """Export as many original controlled forms as necessary, unchanged in layout.
+    """Produce exactly ONE Excel file containing all FAI continuation forms.
 
-    Each page is loaded from the same original workbook, so logos, existing
-    formulas, merged cells, sheet names, print settings and all formatting are
-    preserved. A controlled 25-row form is NEVER expanded or reconstructed.
-    Characteristic numbers remain global and match balloons across pages.
-    Generic templates with variable row counts retain their existing behavior.
+    Controlled 25-row templates become one workbook with tabs FAI FORM,
+    FAI FORM 2, FAI FORM 3... . Each tab begins as a copy of the original
+    unmodified blank template, retaining formatting, merged cells, formulas,
+    images, validations and print layout. Characteristic numbers stay global.
+    The list return type remains for compatibility, but contains ONE path.
     """
     template_path = Path(template_path)
     output_path = Path(output_path)
     chars = list(characteristics)
     if output_path.resolve() == template_path.resolve():
         raise ValueError("FAI Excel output cannot overwrite the original template.")
-
-    book = load_workbook(template_path, read_only=False, data_only=False)
+    if not output_path.suffix.lower() in {".xlsx", ".xlsm"}:
+        raise ValueError("FAI output must be an Excel .xlsx or .xlsm workbook.")
+    book = load_workbook(
+        template_path, data_only=False, keep_vba=template_path.suffix.lower() == ".xlsm"
+    )
     try:
-        is_controlled = _is_formula_master(_pick_sheet(book))
+        master = _pick_sheet(book)
+        if not _is_r3_form(master):
+            _fill_generic(master, chars)
+        else:
+            native_master = _is_formula_master(master)
+            count = max(1, (len(chars) + R3_TEMPLATE_CAPACITY - 1) // R3_TEMPLATE_CAPACITY)
+            # Clone before filling any pages, so later tabs remain pristine
+            # instead of inheriting the first page's entered inspection data.
+            sheets = [master] + [
+                _copy_controlled_form_sheet(book, master, part)
+                for part in range(2, count + 1)
+            ]
+            for index, sheet in enumerate(sheets):
+                batch = chars[
+                    index * R3_TEMPLATE_CAPACITY:(index + 1) * R3_TEMPLATE_CAPACITY
+                ]
+                if native_master:
+                    _fill_formula_master(sheet, batch)
+                else:
+                    # Ordinary R3-based sheets also use fixed page geometry;
+                    # never append body rows into a controlled form's footer.
+                    _fill_r3_form(sheet, batch)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        book.save(output_path)
     finally:
         book.close()
-    if not is_controlled or len(chars) <= R3_TEMPLATE_CAPACITY:
-        return [fill_fai_template(template_path, chars, output_path)]
-
-    page_count = (len(chars) + R3_TEMPLATE_CAPACITY - 1) // R3_TEMPLATE_CAPACITY
-    files = [
-        output_path.with_name(
-            f"{output_path.stem}_FORM_{part:02d}_of_{page_count:02d}{output_path.suffix}"
-        )
-        for part in range(1, page_count + 1)
-    ]
-    # Don't overwrite any source template or previous results unintentionally.
-    if any(path.resolve() == template_path.resolve() for path in files):
-        raise ValueError("A paginated output path would overwrite the original template.")
-    created: list[Path] = []
-    try:
-        for part, path in enumerate(files):
-            batch = chars[part * R3_TEMPLATE_CAPACITY:(part + 1) * R3_TEMPLATE_CAPACITY]
-            fill_fai_template(template_path, batch, path)
-            created.append(path)
-    except Exception:
-        # No incomplete export series left looking like a successful set.
-        for path in created:
-            try:
-                path.unlink()
-            except OSError:
-                pass
-        raise
-    return created
+    return [output_path]
