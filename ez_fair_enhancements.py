@@ -75,18 +75,66 @@ GDT_WORD_PATTERN = re.compile(
 GDT_TOL_PATTERN = re.compile(r"(?:[Ø⌀]\s*)?(?P<tol>(?:\d+\.\d+|\.\d+))")
 DATUM_PATTERN = re.compile(r"(?:^|[|\s])([A-Z])(?:[|\s]|$)")
 
-# Title-block forms such as .XX ±.02, X.XX +/-.02, ANGLES ±2°.
+# Tolerance notes must be extracted from the DRAWING, not guessed from the
+# generic spreadsheet's C/E formulas. These expressions support both written
+# precision ("THREE PLACE DECIMAL") and X.XXX style CAD title blocks.
+_TOL_SIGN = r"(?:±|\+\/-|\+\s*/\s*-)"
+_TITLE_NUMBER = r"((?:\d+\.\d+|\.\d+|\d+))"
 TITLE_TOL_PATTERNS = {
     "three_place": [
-        re.compile(r"(?:\.XXX|X\.XXX|3\s*PLACE\w*)\s*(?:=|:)?\s*(?:±|\+/-)\s*(\.?(?:\d+\.\d+|\d+))", re.I),
+        re.compile(r"(?:\b(?:THREE|3)\s+PLACE(?:\s+DECIMAL)?\b|(?:X)?\.XXX)\s*(?:=|:)?\s*" + _TOL_SIGN + r"\s*" + _TITLE_NUMBER, re.I),
     ],
     "two_place": [
-        re.compile(r"(?:\.XX|X\.XX|2\s*PLACE\w*)\s*(?:=|:)?\s*(?:±|\+/-)\s*(\.?(?:\d+\.\d+|\d+))", re.I),
+        re.compile(r"(?:\b(?:TWO|2)\s+PLACE(?:\s+DECIMAL)?\b|(?:X)?\.XX(?!X))\s*(?:=|:)?\s*" + _TOL_SIGN + r"\s*" + _TITLE_NUMBER, re.I),
+    ],
+    "angular_bend": [
+        re.compile(r"\bBEND(?:ING)?\b\s*(?:=|:)?\s*" + _TOL_SIGN + r"\s*" + _TITLE_NUMBER, re.I),
+    ],
+    "angular_mach": [
+        re.compile(r"\bMACH(?:INED|INING)?\b\s*(?:=|:)?\s*" + _TOL_SIGN + r"\s*" + _TITLE_NUMBER, re.I),
     ],
     "angular": [
-        re.compile(r"(?:ANGLE\w*|ANGULAR)\s*(?:=|:)?\s*(?:±|\+/-)\s*(\d+(?:\.\d+)?)", re.I),
+        re.compile(r"\b(?:ANGLES?|ANGULAR)\b\s*(?:=|:)?\s*" + _TOL_SIGN + r"\s*" + _TITLE_NUMBER, re.I),
     ],
 }
+TITLE_FRACTION_PATTERN = re.compile(
+    r"\bFRACTIONAL\b\s*(?:=|:)?\s*" + _TOL_SIGN + r"\s*(\d+)\s*/\s*(\d+)", re.I
+)
+
+
+def parse_title_block_tolerances(text: str) -> dict[str, float]:
+    """Parse independent dimension-category rules from a drawing title note."""
+    normalized = (
+        str(text).replace("＋", "+").replace("−", "-").replace("–", "-")
+        .replace("＋／－", "+/-").replace("º", "°")
+    )
+    # PDF text can break across spans/lines; normalize whitespace while
+    # respecting each labeled precision category and its immediately following
+    # tolerance, never borrowing another category's value.
+    normalized = " ".join(normalized.split())
+    detected: dict[str, float] = {}
+    for key, patterns in TITLE_TOL_PATTERNS.items():
+        for pattern in patterns:
+            match = pattern.search(normalized)
+            if match:
+                value = float(match.group(1))
+                if 0 < value <= (360.0 if key.startswith("angular") else 1.0):
+                    detected[key] = value
+                    break
+    fractional = TITLE_FRACTION_PATTERN.search(normalized)
+    if fractional:
+        denominator = int(fractional.group(2))
+        numerator = int(fractional.group(1))
+        if denominator and 0 < numerator / denominator <= 1:
+            detected["fractional"] = numerator / denominator
+    # For bent-metal prints, angles without an explicit MACH qualification
+    # use the bend category; machinery-specific angles use angular_mach.
+    if "angular" not in detected:
+        if "angular_bend" in detected:
+            detected["angular"] = detected["angular_bend"]
+        elif "angular_mach" in detected:
+            detected["angular"] = detected["angular_mach"]
+    return detected
 
 
 def _apply_settings(settings: ExtractionSettings) -> None:
@@ -192,29 +240,46 @@ def _extract_from_ocr(pdf_path: Path, settings: ExtractionSettings) -> list[base
 
 
 def detect_title_block_defaults(pdf_path: str | Path, settings: ExtractionSettings) -> dict[str, float]:
+    """Scan lower drawing title notes, including notes LEFT of title/REV boxes.
+
+    The earlier rightmost-45% crop missed many actual tolerance tables, which
+    often occupy the middle or lower-left strip beside the drawing title.
+    Check native PDF text AND OCR when available; divergent readings are not
+    treated as verified source tolerances.
+    """
     detected: dict[str, float] = {}
+    uncertain: set[str] = set()
     with fitz.open(pdf_path) as doc:
         for page in doc:
-            clip = fitz.Rect(page.rect.width * 0.55, page.rect.height * 0.55, page.rect.width, page.rect.height)
-            text = page.get_text("text", clip=clip)
+            clip = fitz.Rect(
+                0, page.rect.height * 0.53, page.rect.width, page.rect.height
+            )
+            sources = [page.get_text("text", clip=clip)]
             if settings.enable_ocr_fallback:
-                # Title-block tolerance data can be missing from vector text
-                # even when other native content exists. Compare BOTH paths.
                 try:
                     words = _page_ocr_words(page, settings.ocr_dpi)
+                    sources.append(
+                        " ".join(
+                            str(word[4]) for word in words
+                            if clip.intersects(base._word_rect(word))
+                        )
+                    )
                 except (RuntimeError, OSError):
-                    words = []
-                ocr_text = " ".join(str(word[4]) for word in words if clip.intersects(base._word_rect(word)))
-                text = text + "\n" + ocr_text
-            normalized = text.replace("＋", "+").replace("−", "-")
-            for key, patterns in TITLE_TOL_PATTERNS.items():
-                if key in detected:
-                    continue
-                for pattern in patterns:
-                    match = pattern.search(normalized)
-                    if match:
-                        detected[key] = float(match.group(1))
-                        break
+                    pass
+            for content in sources:
+                parsed = parse_title_block_tolerances(content)
+                for key, value in parsed.items():
+                    if key in uncertain:
+                        continue
+                    if key in detected and abs(detected[key] - value) > 1e-6:
+                        # Contradictory readings: don't silently choose one.
+                        detected.pop(key, None)
+                        uncertain.add(key)
+                    else:
+                        detected[key] = value
+    # If a category conflicts, don't derive a default angular value from it.
+    if "angular" in uncertain:
+        detected.pop("angular", None)
     return detected
 
 

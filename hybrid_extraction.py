@@ -206,11 +206,13 @@ def extract_pdf_dimensions_hybrid(pdf_path: str | Path, settings: Any = None) ->
     settings = settings or ExtractionSettings.load()
     source = Path(pdf_path)
     title_conflicts = {}
+    detected: dict[str, float] = {}
     if settings.auto_detect_title_block:
         try:
             detected = detect_title_block_defaults(source, settings)
-            for key, value in detected.items():
-                setattr(settings, key, value)
+            for key in ("two_place", "three_place", "angular"):
+                if key in detected:
+                    setattr(settings, key, detected[key])
         except (RuntimeError, OSError) as exc:
             # Native text and its drawing information must survive missing OCR.
             title_conflicts["title_block_ocr"] = str(exc)
@@ -251,6 +253,7 @@ def extract_pdf_dimensions_hybrid(pdf_path: str | Path, settings: Any = None) ->
         item.char_number = index
         item.metadata.setdefault("drawing_name", source.stem)
         item.metadata["title_block_defaults"] = dict(defaults)
+        item.metadata["title_block_detected"] = dict(detected)
         item.metadata["vector_characteristics"] = len(vectors)
         item.metadata["ocr_characteristics"] = len(ocrs)
         if ocr_error:

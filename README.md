@@ -35,10 +35,12 @@ local test runner still uses that native-only path to keep its baseline stable.
 
 Controlled Excel templates with existing C/E tolerance formulas are handled
 without changing their original formatting, merges, logos/images, sheet list,
-print settings or unaffected formulas. Explicit drawing tolerances are written
-as Excel formulas referring to the nominal; conflicting/unverified defaults
-keep the original master formula and block automatic acceptance with REVIEW
-REQUIRED. The original template file is never overwritten. Master forms with
+print settings or unaffected formulas. Explicit drawing tolerances and verified title-block decimal/angle
+rules adjust the C/E limit *formulas*, not the workbook design. Original
+K-column pass/fail formulas are preserved byte-for-byte as Excel expressions,
+and diagnostic warnings NEVER overwrite K or get exported into the Comments
+column. Unknown and conflicting evidence stays in the separate extraction
+debug/summary reports. The original master is never modified. The original template file is never overwritten. Master forms with
 a fixed 25-row body never expand or move their footer. When more than 25
 characteristics are selected, the desktop and Python batch exporters create
 **one FAI Excel workbook** with additional original-layout sheets named

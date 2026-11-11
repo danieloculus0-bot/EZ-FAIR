@@ -93,7 +93,8 @@ def _row_values(characteristic: Any) -> dict[str, Any]:
         "Type": _safe_cell_value(characteristic, "type"),
         "Inspection Actual": _safe_cell_value(characteristic, "actual", ""),
         "Tooling Used": _safe_cell_value(characteristic, "tooling", ""),
-        "Comments": _safe_cell_value(characteristic, "comments", ""),
+        # Extraction/operator notes are diagnostics, NEVER inserted in the FAI report.
+        "Comments": "",
     }
 
 
@@ -196,7 +197,10 @@ def _reset_r3_rows(ws, start_row: int, end_row: int) -> None:
         ws.cell(row=row, column=R3_COLUMNS["Char Number"]).value = row - start_row + 1
         for header in ["Reference Location", "Requirement LSL", "Requirement Nominal", "Requirement USL", "Type", "Supplier Actual", "Supplier Yes", "Supplier No", "Inspection Actual", "Tooling Used", "Comments"]:
             ws.cell(row=row, column=R3_COLUMNS[header]).value = None
-        ws.cell(row=row, column=R3_COLUMNS["In Spec"]).value = _r3_inclusive_formula(row)
+        # Keep the form designer's native pass/fail formula when present.
+        disposition = ws.cell(row=row, column=R3_COLUMNS["In Spec"])
+        if not (isinstance(disposition.value, str) and disposition.value.startswith("=")):
+            disposition.value = _r3_inclusive_formula(row)
 
 
 def _apply_r3_editable_layout(ws, end_row: int) -> None:
@@ -254,10 +258,10 @@ def _fill_r3_form(ws, characteristics: list[Any]) -> int:
         ws.cell(row=row, column=R3_COLUMNS["Requirement USL"]).value = values["Requirement USL"]
         ws.cell(row=row, column=R3_COLUMNS["Type"]).value = values["Type"]
         ws.cell(row=row, column=R3_COLUMNS["Inspection Actual"]).value = None
-        ws.cell(row=row, column=R3_COLUMNS["In Spec"]).value = (
-            "REVIEW REQUIRED" if _tolerance_needs_review(characteristic, values)
-            else _r3_inclusive_formula(row)
-        )
+        # Never replace a formula with review diagnostics or altered pass/fail logic.
+        disposition = ws.cell(row=row, column=R3_COLUMNS["In Spec"])
+        if not (isinstance(disposition.value, str) and disposition.value.startswith("=")):
+            disposition.value = _r3_inclusive_formula(row)
         ws.cell(row=row, column=R3_COLUMNS["Tooling Used"]).value = values["Tooling Used"]
         ws.cell(row=row, column=R3_COLUMNS["Comments"]).value = values["Comments"]
     _add_list_validation(ws, f"F{R3_START_ROW}:F{end_row}", "'CHARACTERISTICS'!$A$1:$A$33")
@@ -331,6 +335,21 @@ def _template_formula_disagrees(ws, row: int, column: int, nominal: Any, limit: 
     return abs(master_offset - expected) > 0.000001
 
 
+def _verified_title_default(characteristic: Any, metadata: dict[str, Any]) -> bool:
+    """Only adjust native bound formulas for a source-confirmed precision rule."""
+    detected = metadata.get("title_block_detected", {}) or {}
+    raw = str(_safe_cell_value(characteristic, "raw_text", "") or "")
+    dim_type = str(_safe_cell_value(characteristic, "type", "") or "").upper()
+    if dim_type in {"°", "ANGLE", "ANGULAR"}:
+        return "angular" in detected or "angular_bend" in detected or "angular_mach" in detected
+    if "/" in raw and "." not in raw:
+        return "fractional" in detected
+    decimal = re.search(r"\.(\d+)", raw)
+    if decimal:
+        return ("three_place" if len(decimal.group(1)) >= 3 else "two_place") in detected
+    return False
+
+
 def _fill_formula_master(ws, characteristics: list[Any]) -> int:
     """Fill ONLY inspection data in a native formula-bearing Excel form.
 
@@ -356,29 +375,23 @@ def _fill_formula_master(ws, characteristics: list[Any]) -> int:
         # Never fill inspection measurements or acceptance decisions from OCR.
         ws.cell(row, R3_COLUMNS["Inspection Actual"]).value = None
         tolerance_status = str(metadata.get("tolerance_status", "default"))
-        review = _tolerance_needs_review(characteristic, values)
-        # A master template's built-in ± tolerances may disagree with uncertain
-        # drawing defaults. Never silently leave such a mismatch passable.
-        master_mismatch = tolerance_status != "explicit" and (
-            _template_formula_disagrees(ws, row, R3_COLUMNS["Requirement LSL"], values["Requirement Nominal"], values["Requirement LSL"])
-            or _template_formula_disagrees(ws, row, R3_COLUMNS["Requirement USL"], values["Requirement Nominal"], values["Requirement USL"])
-        )
-        review = review or master_mismatch
-        if not review:
-            _update_native_bound_formula(ws, row, R3_COLUMNS["Requirement LSL"], values["Requirement Nominal"], values["Requirement LSL"], tolerance_status)
-            _update_native_bound_formula(ws, row, R3_COLUMNS["Requirement USL"], values["Requirement Nominal"], values["Requirement USL"], tolerance_status)
-        comments = str(values["Comments"] or "")
-        if master_mismatch:
-            comments = (comments + " | " if comments else "") + "Template limits differ from unverified extracted defaults; confirm on print"
-        if review:
-            comments = (comments + " | " if comments else "") + "REVIEW REQUIRED: extraction/tolerance evidence"
-            disposition = ws.cell(row, R3_COLUMNS["In Spec"])
-            if isinstance(disposition.value, str) and disposition.value.startswith("="):
-                # Keep the original formula expression but prevent a false pass.
-                disposition.value = '=IF(TRUE,"REVIEW REQUIRED",' + disposition.value[1:] + ')'
-            else:
-                disposition.value = "REVIEW REQUIRED"
-        ws.cell(row, R3_COLUMNS["Comments"]).value = comments
+        # Only write an Excel tolerance formula when supported by explicit
+        # dimensional tolerance evidence or the correct title-block precision
+        # rule. For unknown rules leave the original formula untouched and
+        # report uncertainty outside the FAI workbook (debug/summary only).
+        source_default = _verified_title_default(characteristic, metadata)
+        if tolerance_status == "explicit" or (tolerance_status == "default" and source_default):
+            for column, limit_header in (
+                (R3_COLUMNS["Requirement LSL"], "Requirement LSL"),
+                (R3_COLUMNS["Requirement USL"], "Requirement USL"),
+            ):
+                _update_native_bound_formula(
+                    ws, row, column, values["Requirement Nominal"],
+                    values[limit_header], "explicit",
+                )
+        # Original K-column pass/fail formula is intentionally never touched.
+        # No comments, review notes, or extraction warnings inside the FAI form.
+        ws.cell(row, R3_COLUMNS["Comments"]).value = None
     return len(characteristics)
 
 
@@ -433,10 +446,9 @@ def _fill_generic(ws, characteristics: list[Any]) -> int:
         lsl_col = get_column_letter(columns["Requirement LSL"])
         usl_col = get_column_letter(columns["Requirement USL"])
         in_spec_col = columns["In Spec"]
-        ws.cell(row=row, column=in_spec_col).value = (
-            "REVIEW REQUIRED" if _tolerance_needs_review(characteristic, values)
-            else f'=IF({actual_col}{row}="","",IF(AND({actual_col}{row}>={lsl_col}{row},{actual_col}{row}<={usl_col}{row}),"X",""))'
-        )
+        formula_cell = ws.cell(row=row, column=in_spec_col)
+        if not (isinstance(formula_cell.value, str) and formula_cell.value.startswith("=")):
+            formula_cell.value = f'=IF({actual_col}{row}="","",IF(AND({actual_col}{row}>={lsl_col}{row},{actual_col}{row}<={usl_col}{row}),"X",""))'
     return len(characteristics)
 
 
