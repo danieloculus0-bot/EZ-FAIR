@@ -596,6 +596,11 @@ def fill_fai_template_pages(
                     # Ordinary R3-based sheets also use fixed page geometry;
                     # never append body rows into a controlled form's footer.
                     _fill_r3_form(sheet, batch)
+                # A controlled master may pre-number all 25 empty body rows.
+                # Empty slots must not carry phantom balloon numbers,
+                # especially on the final continuation tab.
+                for unused in range(R3_START_ROW + len(batch), R3_TEMPLATE_END_ROW + 1):
+                    sheet.cell(unused, R3_COLUMNS["Char Number"]).value = None
         output_path.parent.mkdir(parents=True, exist_ok=True)
         book.save(output_path)
     finally:
