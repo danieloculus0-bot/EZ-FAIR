@@ -41,9 +41,10 @@ keep the original master formula and block automatic acceptance with REVIEW
 REQUIRED. The original template file is never overwritten. Master forms with
 a fixed 25-row body never expand or move their footer. When more than 25
 characteristics are selected, the desktop and Python batch exporters create
-separate original-layout workbooks named `*_FORM_01_of_03.xlsx`,
-`*_FORM_02_of_03.xlsx`, etc., and preserve global characteristic numbers so
-Excel rows correspond to balloons across every form. The polished Windows
+**one FAI Excel workbook** with additional original-layout sheets named
+`FAI FORM 2`, `FAI FORM 3`, etc. Each new tab retains the same
+logos, formulas, data validations, print settings and styles as the master.
+Global characteristic numbers continue across all tabs and match the balloons. The polished Windows
 workbench always releases its busy state and reports an error if an export
 fails. A distinct PDF-originated title-block zone filter reduces balloons on
 administrative tolerances while leaving drawing-area dimensions available.
@@ -61,7 +62,7 @@ both desktop GUIs generate and select the original neutral
 full **Excel workbook**, not a dark-themed preview or substituted report.
 It has 25 editable inspection rows, original Excel LSL/USL/acceptance
 formulas, manual actual-value fields and dropdown lists. More than 25
-reviewed characteristics generate multiple numbered copies of the master.
+reviewed characteristics add continuation sheets within the same output workbook.
 
 The default is deliberately **unbranded** and independently created from
 generic FAI concepts; no employer/customer template or logo is bundled or
