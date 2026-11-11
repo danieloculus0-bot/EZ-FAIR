@@ -123,7 +123,7 @@ def test_unverified_default_conflicting_with_master_is_not_a_false_pass(tmp_path
 
 
 
-def test_more_than_25_characteristics_produces_multiple_pristine_form_workbooks(tmp_path):
+def test_more_than_25_characteristics_produces_one_workbook_with_form_tabs(tmp_path):
     master = tmp_path / "controlled_template.xlsx"
     build_native_formula_form(master)
     original_hash = sha256(master.read_bytes()).hexdigest()
@@ -132,17 +132,20 @@ def test_more_than_25_characteristics_produces_multiple_pristine_form_workbooks(
                        lsl=float(i) - 0.02, usl=float(i) + 0.02)
         for i in range(1, 59)
     ]
-    forms = fill_fai_template_pages(master, candidates, tmp_path / "part_FAI.xlsx")
-    assert len(forms) == 3
-    assert all(path.exists() for path in forms)
+    target = tmp_path / "part_FAI.xlsx"
+    forms = fill_fai_template_pages(master, candidates, target)
+    assert forms == [target]
+    assert target.exists()
+    assert sorted(path.name for path in tmp_path.glob("part_FAI*.xlsx")) == ["part_FAI.xlsx"]
     assert sha256(master.read_bytes()).hexdigest() == original_hash
 
-    for number, (path, expected_first, expected_last) in enumerate(
-        zip(forms, [1, 26, 51], [25, 50, 58]), start=1
+    book = load_workbook(target, data_only=False)
+    tabs = ["FAI FORM", "FAI FORM 2", "FAI FORM 3"]
+    assert [x for x in book.sheetnames if x.startswith("FAI FORM")] == tabs
+    for tab, expected_first, expected_last in zip(
+        tabs, [1, 26, 51], [25, 50, 58]
     ):
-        assert path.name.endswith(f"_FORM_{number:02d}_of_03.xlsx")
-        book = load_workbook(path, data_only=False)
-        ws = book["FAI FORM"]
+        ws = book[tab]
         assert ws.max_row == 48
         assert len(ws._images) == 1
         assert ws["A24"].value == expected_first
@@ -151,8 +154,11 @@ def test_more_than_25_characteristics_produces_multiple_pristine_form_workbooks(
         assert ws["E24"].data_type == "f"
         assert ws["K24"].data_type == "f"
         assert "review" not in str(ws["K24"].value).lower()
-        assert ws.print_area == "'FAI FORM'!$A$1:$N$48"
-        book.close()
+        assert ws.print_area == f"'{tab}'!$A$1:$N$48"
+        assert ws["A3"].fill.fgColor.rgb == book["FAI FORM"]["A3"].fill.fgColor.rgb
+    assert book["FAI FORM 2"]["C24"].value == "=D24-0.02"
+    assert book["FAI FORM 3"]["D24"].value == 51
+    book.close()
 
 
 def test_single_page_export_name_remains_stable(tmp_path):
@@ -175,9 +181,11 @@ def test_varied_nominals_preserve_second_page_formula_offsets(tmp_path):
         for i in range(1, 27)
     ]
     files = fill_fai_template_pages(master, candidates, tmp_path / "out.xlsx")
-    second = load_workbook(files[1], data_only=False)
-    assert second["FAI FORM"]["A24"].value == 26
-    assert second["FAI FORM"]["D24"].value == 126
-    assert second["FAI FORM"]["C24"].value == "=D24-0.02"
-    assert second["FAI FORM"]["E24"].value == "=D24+0.02"
-    second.close()
+    assert files == [tmp_path / "out.xlsx"]
+    book = load_workbook(files[0], data_only=False)
+    second = book["FAI FORM 2"]
+    assert second["A24"].value == 26
+    assert second["D24"].value == 126
+    assert second["C24"].value == "=D24-0.02"
+    assert second["E24"].value == "=D24+0.02"
+    book.close()
