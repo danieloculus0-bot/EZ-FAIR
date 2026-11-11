@@ -81,7 +81,7 @@ DATUM_PATTERN = re.compile(r"(?:^|[|\s])([A-Z])(?:[|\s]|$)")
 # Many CAD title blocks list tolerances as "MACH .5 BEND 1" or
 # "THREE PLACE DECIMAL 0.01", with no printed ± character.
 # The explicit label anchors each value; a ± marker is optional.
-_TOL_SIGN = r"(?:±|\\+\\/-|\\+\\s*/\\s*-)?"
+_TOL_SIGN = r"(?:±|\+\/-|\+\s*/\s*-)?"
 _TITLE_NUMBER = r"((?:\d+\.\d+|\.\d+|\d+))"
 TITLE_TOL_PATTERNS = {
     "three_place": [
