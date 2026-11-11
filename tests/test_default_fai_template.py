@@ -23,8 +23,8 @@ def test_builtin_neutral_form_requires_no_uploaded_template(tmp_path, monkeypatc
     wb = load_workbook(path, data_only=False)
     form = wb["FAI FORM"]
     assert form["A3"].value == "FIRST ARTICLE INSPECTION (FAI)"
-    assert form["C24"].value == "=D24-0.02"
-    assert form["E24"].value == "=D24+0.02"
+    assert form["C24"].value is None
+    assert form["E24"].value is None
     assert form["K24"].data_type == "f"
     assert form["J24"].value is None
     assert len(wb.sheetnames) == 4
