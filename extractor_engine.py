@@ -234,10 +234,12 @@ def _is_count_prefix(line_text: str, match: re.Match[str]) -> bool:
 
 def _noise_reason(raw: str, value_text: str, line_text: str, nearby: str, page_rect: fitz.Rect, rect: fitz.Rect) -> str:
     raw = raw.strip()
-    combined = f"{raw} {line_text} {nearby}"
     if raw.startswith(("+", "-")):
         return "explicit tolerance component, not a standalone characteristic"
-    if DATE_LIKE_PATTERN.search(combined):
+    # Nearby text can include a DATE or approval cell even when the dimension
+    # itself is outside the title block. Evaluate date noise in the candidate
+    # line only, not in a broad neighborhood around lower-view dimensions.
+    if DATE_LIKE_PATTERN.search(line_text):
         return "date-like text"
     if value_text.isdigit() and 1900 <= int(value_text) <= 2099 and not DIMENSION_CONTEXT_PATTERN.search(line_text):
         return "year-like value"
