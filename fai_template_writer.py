@@ -312,6 +312,25 @@ def _update_native_bound_formula(ws, row: int, column: int, nominal: Any, limit:
     cell.value = proposed
 
 
+def _template_formula_disagrees(ws, row: int, column: int, nominal: Any, limit: Any) -> bool:
+    """Safely detect unverified mismatch between master formulas and candidate limits."""
+    if not isinstance(nominal, (int, float)) or not isinstance(limit, (int, float)):
+        return True
+    original = ws.cell(row, column).value
+    if not isinstance(original, str) or not original.startswith("="):
+        return True
+    if original.strip().upper() == f"=D{row}":
+        master_offset = 0.0
+    else:
+        matched = re.fullmatch(rf"=D{row}\s*([+-])\s*(\d+(?:\.\d+)?)", original, re.I)
+        if not matched:
+            return True
+        sign = 1 if matched.group(1) == ("-" if column == 3 else "+") else -1
+        master_offset = float(matched.group(2)) * sign
+    expected = nominal - limit if column == 3 else limit - nominal
+    return abs(master_offset - expected) > 0.000001
+
+
 def _fill_formula_master(ws, characteristics: list[Any]) -> int:
     """Fill ONLY inspection data in a native formula-bearing Excel form.
 
@@ -337,10 +356,20 @@ def _fill_formula_master(ws, characteristics: list[Any]) -> int:
         # Never fill inspection measurements or acceptance decisions from OCR.
         ws.cell(row, R3_COLUMNS["Inspection Actual"]).value = None
         tolerance_status = str(metadata.get("tolerance_status", "default"))
-        _update_native_bound_formula(ws, row, R3_COLUMNS["Requirement LSL"], values["Requirement Nominal"], values["Requirement LSL"], tolerance_status)
-        _update_native_bound_formula(ws, row, R3_COLUMNS["Requirement USL"], values["Requirement Nominal"], values["Requirement USL"], tolerance_status)
         review = _tolerance_needs_review(characteristic, values)
+        # A master template's built-in ± tolerances may disagree with uncertain
+        # drawing defaults. Never silently leave such a mismatch passable.
+        master_mismatch = tolerance_status != "explicit" and (
+            _template_formula_disagrees(ws, row, R3_COLUMNS["Requirement LSL"], values["Requirement Nominal"], values["Requirement LSL"])
+            or _template_formula_disagrees(ws, row, R3_COLUMNS["Requirement USL"], values["Requirement Nominal"], values["Requirement USL"])
+        )
+        review = review or master_mismatch
+        if not review:
+            _update_native_bound_formula(ws, row, R3_COLUMNS["Requirement LSL"], values["Requirement Nominal"], values["Requirement LSL"], tolerance_status)
+            _update_native_bound_formula(ws, row, R3_COLUMNS["Requirement USL"], values["Requirement Nominal"], values["Requirement USL"], tolerance_status)
         comments = str(values["Comments"] or "")
+        if master_mismatch:
+            comments = (comments + " | " if comments else "") + "Template limits differ from unverified extracted defaults; confirm on print"
         if review:
             comments = (comments + " | " if comments else "") + "REVIEW REQUIRED: extraction/tolerance evidence"
             disposition = ws.cell(row, R3_COLUMNS["In Spec"])
