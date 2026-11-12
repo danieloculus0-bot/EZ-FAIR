@@ -261,62 +261,76 @@ def extract_pdf_dimensions_hybrid(pdf_path: str | Path, settings: Any = None) ->
     import extractor_engine
 
     settings = settings or ExtractionSettings.load()
-    source = Path(pdf_path)
-    title_conflicts = {}
-    detected: dict[str, float] = {}
-    if settings.auto_detect_title_block:
-        try:
-            detected = detect_title_block_defaults(source, settings)
-            for key in ("two_place", "three_place", "angular"):
-                if key in detected:
-                    setattr(settings, key, detected[key])
-        except (RuntimeError, OSError) as exc:
-            # Native text and its drawing information must survive missing OCR.
-            title_conflicts["title_block_ocr"] = str(exc)
-    defaults = {
-        "two_place": float(settings.two_place),
-        "three_place": float(settings.three_place),
-        "angular": float(settings.angular),
-    }
-    legacy.TITLE_BLOCK_DEFAULTS.update(defaults)
-    extractor_engine.TITLE_BLOCK_DEFAULTS.update(defaults)
-    vectors = native.extract_pdf_dimensions(source)
-    _apply_source_tolerances(vectors, detected)
-    ocrs: list[Any] = []
-    ocr_error = ""
-    if settings.enable_ocr_fallback:
-        try:
-            # Always run OCR; never gate it on len(vectors) == 0.
-            ocrs = _extract_from_ocr(source, settings)
-            _apply_source_tolerances(ocrs, detected)
-        except (RuntimeError, OSError) as exc:
-            ocr_error = str(exc)
-    if not vectors and not ocrs and ocr_error:
-        raise RuntimeError(ocr_error)
-    # Preserve title-block tolerance text for default detection, but never
-    # promote its numeric fragments to inspection/balloon characteristics.
-    vectors, ocrs = _remove_title_block_candidates(source, vectors, ocrs)
-    combined = reconcile_characteristics(vectors, ocrs)
+    # Title-block values are drawing-local. Preserve caller and legacy defaults
+    # even when vector/OCR extraction raises an exception.
+    tolerance_keys = ("two_place", "three_place", "angular")
+    saved_settings = {key: getattr(settings, key) for key in tolerance_keys}
+    saved_legacy = dict(legacy.TITLE_BLOCK_DEFAULTS)
+    saved_engine = dict(extractor_engine.TITLE_BLOCK_DEFAULTS)
     try:
-        gdts = extract_gdt_characteristics(source, len(combined) + 1, settings)
-    except (RuntimeError, OSError):
-        gdts = []
-    for candidate in gdts:
-        extra = _as_native(candidate)
-        if any(_nearby(extra, old) and extra.type == old.type for old in combined):
-            continue
-        extra.metadata["extraction_paths"] = ["gdt_scan"]
-        _flag_review(extra, "GD&T candidate needs feature-control-frame confirmation")
-        combined.append(extra)
-    for index, item in enumerate(combined, start=1):
-        item.char_number = index
-        item.metadata.setdefault("drawing_name", source.stem)
-        item.metadata["title_block_defaults"] = dict(defaults)
-        item.metadata["title_block_detected"] = dict(detected)
-        item.metadata["vector_characteristics"] = len(vectors)
-        item.metadata["ocr_characteristics"] = len(ocrs)
-        if ocr_error:
-            item.metadata["ocr_unavailable"] = ocr_error
-        if title_conflicts:
-            item.metadata["title_detection_warnings"] = title_conflicts
-    return combined
+        source = Path(pdf_path)
+        title_conflicts = {}
+        detected: dict[str, float] = {}
+        if settings.auto_detect_title_block:
+            try:
+                detected = detect_title_block_defaults(source, settings)
+                for key in ("two_place", "three_place", "angular"):
+                    if key in detected:
+                        setattr(settings, key, detected[key])
+            except (RuntimeError, OSError) as exc:
+                # Native text and its drawing information must survive missing OCR.
+                title_conflicts["title_block_ocr"] = str(exc)
+        defaults = {
+            "two_place": float(settings.two_place),
+            "three_place": float(settings.three_place),
+            "angular": float(settings.angular),
+        }
+        legacy.TITLE_BLOCK_DEFAULTS.update(defaults)
+        extractor_engine.TITLE_BLOCK_DEFAULTS.update(defaults)
+        vectors = native.extract_pdf_dimensions(source)
+        _apply_source_tolerances(vectors, detected)
+        ocrs: list[Any] = []
+        ocr_error = ""
+        if settings.enable_ocr_fallback:
+            try:
+                # Always run OCR; never gate it on len(vectors) == 0.
+                ocrs = _extract_from_ocr(source, settings)
+                _apply_source_tolerances(ocrs, detected)
+            except (RuntimeError, OSError) as exc:
+                ocr_error = str(exc)
+        if not vectors and not ocrs and ocr_error:
+            raise RuntimeError(ocr_error)
+        # Preserve title-block tolerance text for default detection, but never
+        # promote its numeric fragments to inspection/balloon characteristics.
+        vectors, ocrs = _remove_title_block_candidates(source, vectors, ocrs)
+        combined = reconcile_characteristics(vectors, ocrs)
+        try:
+            gdts = extract_gdt_characteristics(source, len(combined) + 1, settings)
+        except (RuntimeError, OSError):
+            gdts = []
+        for candidate in gdts:
+            extra = _as_native(candidate)
+            if any(_nearby(extra, old) and extra.type == old.type for old in combined):
+                continue
+            extra.metadata["extraction_paths"] = ["gdt_scan"]
+            _flag_review(extra, "GD&T candidate needs feature-control-frame confirmation")
+            combined.append(extra)
+        for index, item in enumerate(combined, start=1):
+            item.char_number = index
+            item.metadata.setdefault("drawing_name", source.stem)
+            item.metadata["title_block_defaults"] = dict(defaults)
+            item.metadata["title_block_detected"] = dict(detected)
+            item.metadata["vector_characteristics"] = len(vectors)
+            item.metadata["ocr_characteristics"] = len(ocrs)
+            if ocr_error:
+                item.metadata["ocr_unavailable"] = ocr_error
+            if title_conflicts:
+                item.metadata["title_detection_warnings"] = title_conflicts
+        return combined
+    finally:
+        for key, value in saved_settings.items():
+            setattr(settings, key, value)
+        legacy.TITLE_BLOCK_DEFAULTS.clear()
+        legacy.TITLE_BLOCK_DEFAULTS.update(saved_legacy)
+        extractor_engine.TITLE_BLOCK_DEFAULTS.clear()
+        extractor_engine.TITLE_BLOCK_DEFAULTS.update(saved_engine)
