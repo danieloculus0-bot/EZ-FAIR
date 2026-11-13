@@ -5,9 +5,10 @@ import re
 from pathlib import Path
 from typing import Any
 
-import fitz
+import pymupdf as fitz
 
 import extractor_engine as base
+from dimension_tolerance import bind_tolerances
 from extractor_engine import Characteristic, SkippedCandidate
 
 TITLE_SKIP = re.compile(r"\b(?:UNLESS OTHERWISE|DECIMAL|FRACTION|ANGULAR|PROPRIETARY|TITLE|DWG|DRAWN|DATE|MATERIAL|THICKNESS|SCALE|WEIGHT|SHEET|REV|INITIALS|TOLERANCE|DO NOT SCALE)\b", re.I)
@@ -30,17 +31,26 @@ def _decorated_raw(line: str, match: re.Match[str]) -> str:
 
 
 def classify_dimension(text: str, context: str = "") -> str:
-    blob = f"{text or ''} {context or ''}"
-    if "°" in blob or "º" in blob or re.search(r"\bdeg\.?\b", blob, re.I):
-        return "°"
-    if "Ø" in text or "⌀" in text or re.search(r"\b(?:DIA|DIAMETER)\b", blob, re.I):
-        return "DIAMETER"
-    if re.match(r"\s*[Rr]\s*\.?\d", text or "") or re.search(r"\b(?:RADIUS|RAD)\b", blob, re.I):
+    """Classify the candidate itself before considering neighboring callouts.
+
+    Drawings often place angles beside radius/linear callouts on the same
+    graphical line. A nearby degree sign must not turn R.320 into 0.320 degrees.
+    """
+    raw = (text or "").replace("⌀", "Ø").replace("º", "°")
+    if re.match(r"^\s*[Rr]\s*\.?\d", raw):
         return "RADIUS"
-    if base.WELD_PATTERN.search(blob):
+    if "Ø" in raw:
+        return "DIAMETER"
+    if "°" in raw or re.search(r"\bdeg\.?\s*$", raw, re.I):
+        return "°"
+    context = context or ""
+    if re.search(r"\b(?:RADIUS|RAD)\b", context, re.I) and "°" not in context:
+        return "RADIUS"
+    if re.search(r"\b(?:DIA|DIAMETER)\b", context, re.I) and "°" not in context:
+        return "DIAMETER"
+    if base.WELD_PATTERN.search(raw):
         return "WELD"
     return "LINEAR"
-
 
 def _type_for_match(raw: str, line: str, near: str, match: re.Match[str]) -> str:
     """Classify with slot and thru-hole context.
@@ -53,6 +63,11 @@ def _type_for_match(raw: str, line: str, near: str, match: re.Match[str]) -> str
     direct = classify_dimension(raw, line)
     if direct != "LINEAR":
         return direct
+    # Some CAD encodings detach the radius symbol from the numeric span.
+    # Only an immediately adjacent R denotes a radius, not a remote R on
+    # the same line that might annotate a separate feature.
+    if re.search(r"\bR\s*$", line[max(0, match.start() - 5):match.start()], re.I):
+        return "RADIUS"
 
     before = line[max(0, match.start() - 14):match.start()]
     after = line[match.end():match.end() + 40]
@@ -99,17 +114,21 @@ def _duplicate(chars: list[Characteristic], page_i: int, typ: str, nominal: floa
 
 
 def _title_noise(page: fitz.Page, rect: fitz.Rect, line: str, near: str) -> bool:
-    blob = f"{line} {near}"
-    if rect.y0 > page.rect.height * 0.70 and TITLE_SKIP.search(blob):
+    # The 72-point context window can extend from a legitimate low-positioned
+    # detail dimension into the adjacent title block. Do not discard .480 or
+    # R.320 merely because an unrelated nearby label says THICKNESS / DATE.
+    # A separately identified title-block region is filtered in the hybrid
+    # reconciler, while this check concerns the candidate's own text only.
+    if rect.y0 > page.rect.height * 0.70 and TITLE_SKIP.search(line):
         return True
-    if re.search(r"\b(?:TWO|THREE|ONE) PLACE DECIMAL\b", blob, re.I):
+    if re.search(r"\b(?:TWO|THREE|ONE) PLACE DECIMAL\b", line, re.I):
         return True
-    if re.search(r"\bSHEET\s+\d+\s+(?:OF|/)\s+\d+\b", blob, re.I):
+    if re.search(r"\bSHEET\s+\d+\s+(?:OF|/)\s+\d+\b", line, re.I):
         return True
     return False
 
 
-def _add(chars: list[Characteristic], skipped: list[SkippedCandidate], page: fitz.Page, page_i: int, raw: str, value: str, rect: fitz.Rect, line: str, near: str, comment: str, meta: dict[str, Any], forced_type: str | None = None) -> None:
+def _add(chars: list[Characteristic], skipped: list[SkippedCandidate], page: fitz.Page, page_i: int, raw: str, value: str, rect: fitz.Rect, line: str, near: str, comment: str, meta: dict[str, Any], forced_type: str | None = None, explicit_tolerance: str = "", tolerance_status: str = "default") -> None:
     try:
         nominal = float(value)
     except Exception:
@@ -129,9 +148,9 @@ def _add(chars: list[Characteristic], skipped: list[SkippedCandidate], page: fit
     if _duplicate(chars, page_i, typ, nominal, rect, line):
         base._record_skip(skipped, page_i, raw, "duplicate candidate at same location", rect, near)
         return
-    lsl, usl = base.calculate_tolerance_limits(nominal, value, typ, f"{line} {near}")
+    lsl, usl = base.calculate_tolerance_limits(nominal, value, typ, explicit_tolerance)
     m = dict(meta)
-    m.update({"source": line, "nearby": near})
+    m.update({"source": line, "nearby": near, "tolerance_status": tolerance_status, "tolerance_review_required": tolerance_status == "review_required"})
     chars.append(Characteristic(len(chars) + 1, base._reference_location(page, rect, page_i), nominal, lsl, usl, typ, page_i, (rect.x0, rect.y0, rect.x1, rect.y1), raw, base.DEFAULT_TOOLING.get(typ, "CALIPER"), comment, "", m))
 
 
@@ -150,13 +169,13 @@ def extract_pdf_dimensions(pdf_path: str | Path) -> list[Characteristic]:
         if rev:
             meta["revision"] = rev.group(1).strip()
         for page_i, page in enumerate(doc):
-            before_count = len(chars)
             lines = list(base._line_groups(page))
             for line, line_rect, words in lines:
                 if line_rect.y0 > page.rect.height * 0.70 and TITLE_SKIP.search(line):
                     base._record_skip(skipped, page_i, line, "title block line ignored", line_rect, line)
                     continue
-                for match in DIM_RE.finditer(line):
+                for binding in bind_tolerances(line, DIM_RE):
+                    match = binding.match
                     raw = _decorated_raw(line, match)
                     value = match.group("num")
                     if base._is_count_prefix(line, match):
@@ -170,15 +189,27 @@ def extract_pdf_dimensions(pdf_path: str | Path) -> list[Characteristic]:
                     rect = base._match_rect_from_words(line, line_rect, words, match)
                     near = base._nearby_text(page, rect)
                     forced_type = _type_for_match(raw, line, near, match)
-                    _add(chars, skipped, page, page_i, raw, value, rect, line, near, comment, meta, forced_type)
-            if len(chars) == before_count:
-                for line, line_rect in base._iter_text_spans(page):
-                    for match in DIM_RE.finditer(line):
-                        raw = _decorated_raw(line, match)
-                        rect = base._match_rect_from_words(line, line_rect, [], match)
-                        near = base._nearby_text(page, rect)
-                        forced_type = _type_for_match(raw, line, near, match)
-                        _add(chars, skipped, page, page_i, raw, match.group("num"), rect, line, near, comment, meta, forced_type)
+                    _add(chars, skipped, page, page_i, raw, value, rect, line, near, comment, meta, forced_type, binding.context, binding.status)
+            # Run span recovery for EVERY page, not only when the entire
+            # words pass found zero dimensions. Mixed CAD PDFs often expose
+            # most dimensions as words but leave isolated rotated/radius
+            # callouts only in text spans. Existing same-page/same-location
+            # deduplication prevents additional balloons on matches.
+            for line, line_rect in base._iter_text_spans(page):
+                for binding in bind_tolerances(line, DIM_RE):
+                    match = binding.match
+                    raw = _decorated_raw(line, match)
+                    if base._is_count_prefix(line, match):
+                        continue
+                    value = match.group("num")
+                    forced_type = _type_for_match(raw, line, "", match)
+                    has_symbol = raw.startswith(("Ø", "R")) or forced_type == "DIAMETER" or bool((match.group("suffix") or "").strip())
+                    if not ("." in value or has_symbol or DIM_CONTEXT.search(line) or base.TOLERANCE_PATTERN.search(line)):
+                        continue
+                    rect = base._match_rect_from_words(line, line_rect, [], match)
+                    near = base._nearby_text(page, rect)
+                    forced_type = _type_for_match(raw, line, near, match)
+                    _add(chars, skipped, page, page_i, raw, value, rect, line, near, comment, meta, forced_type, binding.context, binding.status)
     for i, c in enumerate(chars, 1):
         c.char_number = i
     base.LAST_EXTRACTION_DEBUG["skipped"] = skipped

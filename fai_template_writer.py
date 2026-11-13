@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import copy
+import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -35,7 +37,7 @@ R3_COLUMNS = {
     "Supplier Actual": 7,
     "Supplier Yes": 8,
     "Supplier No": 9,
-    "company Actual": 10,
+    "Inspection Actual": 10,
     "In Spec": 11,
     "Tooling Used": 13,
     "Comments": 14,
@@ -43,7 +45,7 @@ R3_COLUMNS = {
 
 GENERIC_HEADERS = [
     "Char Number", "Reference Location", "Requirement LSL", "Requirement Nominal", "Requirement USL",
-    "Type", "company Actual", "In Spec", "Tooling Used", "Comments",
+    "Type", "Inspection Actual", "In Spec", "Tooling Used", "Comments",
 ]
 
 HEADER_ALIASES = {
@@ -53,7 +55,7 @@ HEADER_ALIASES = {
     "Requirement Nominal": ["requirement nominal", "nominal", "requirement", "dimension", "specified requirement"],
     "Requirement USL": ["requirement usl", "usl", "upper spec limit", "upper limit", "maximum", "max"],
     "Type": ["type", "characteristic type", "dim type"],
-    "company Actual": ["company actual", "actual", "actual result", "measured actual", "measurement"],
+    "Inspection Actual": ["Inspection Actual", "actual", "actual result", "measured actual", "measurement"],
     "In Spec": ["in spec", "inspec", "pass fail", "pass/fail", "accept", "result"],
     "Tooling Used": ["tooling used", "tooling", "tool used", "gage", "gauge", "inspection tool"],
     "Comments": ["comments", "comment", "notes", "remark", "remarks"],
@@ -91,10 +93,27 @@ def _row_values(characteristic: Any) -> dict[str, Any]:
         "Requirement Nominal": _safe_cell_value(characteristic, "nominal"),
         "Requirement USL": _safe_cell_value(characteristic, "usl"),
         "Type": _safe_cell_value(characteristic, "type"),
-        "company Actual": _safe_cell_value(characteristic, "actual", ""),
+        "Inspection Actual": _safe_cell_value(characteristic, "actual", ""),
         "Tooling Used": _safe_cell_value(characteristic, "tooling", ""),
-        "Comments": _safe_cell_value(characteristic, "comments", ""),
+        # Extraction/operator notes are diagnostics, NEVER inserted in the FAI report.
+        "Comments": "",
     }
+
+
+def _tolerance_needs_review(characteristic: Any, values: dict[str, Any]) -> bool:
+    """A flagged or missing tolerance must never be silently formula-passable.
+
+    Ambiguous explicit tolerances can carry numerical *default* limits, so
+    checking for missing limits alone is insufficient after positional binding.
+    """
+    metadata = _characteristic_metadata(characteristic)
+    return (
+        values["Requirement LSL"] is None
+        or values["Requirement USL"] is None
+        or metadata.get("tolerance_review_required") is True
+        or metadata.get("review_required") is True
+        or metadata.get("tolerance_status") == "review_required"
+    )
 
 
 def _pick_sheet(wb):
@@ -158,6 +177,39 @@ def _r3_inclusive_formula(row: int) -> str:
     return f'=IF(J{row}="","",IF(AND(J{row}>=C{row},J{row}<=E{row}),"X",""))'
 
 
+def _guard_original_passfail(ws: Any, row: int) -> None:
+    """Retain existing acceptance logic while preventing unmeasured false Xs.
+
+    This wraps the *same source formula expression* only in generated outputs.
+    The original controlled workbook is never modified. Empty actuals or
+    unverified/blank limits must display empty, not an automatic pass.
+    """
+    disposition = ws.cell(row, R3_COLUMNS["In Spec"])
+    original = disposition.value
+    if not (isinstance(original, str) and original.startswith("=")):
+        original = _r3_inclusive_formula(row)
+    condition = f'OR(J{row}="",C{row}="",E{row}="",NOT(ISNUMBER(J{row})),NOT(ISNUMBER(C{row})),NOT(ISNUMBER(E{row})))'
+    if original.startswith("=IF(OR(J") and "NOT(ISNUMBER(" in original:
+        # Idempotent for second-stage exports.
+        return
+    disposition.value = f'=IF({condition},"",{original[1:]})'
+
+
+def _clear_unused_fai_rows(ws: Any, first_unused_row: int, end_row: int = R3_TEMPLATE_END_ROW) -> None:
+    """Leave unused inspection rows *visually empty*, preserving their styles."""
+    for row in range(first_unused_row, end_row + 1):
+        for col in (
+            R3_COLUMNS["Char Number"], R3_COLUMNS["Reference Location"],
+            R3_COLUMNS["Requirement LSL"], R3_COLUMNS["Requirement Nominal"],
+            R3_COLUMNS["Requirement USL"], R3_COLUMNS["Type"],
+            R3_COLUMNS["Supplier Actual"], R3_COLUMNS["Supplier Yes"],
+            R3_COLUMNS["Supplier No"], R3_COLUMNS["Inspection Actual"],
+            R3_COLUMNS["In Spec"], R3_COLUMNS["Tooling Used"],
+            R3_COLUMNS["Comments"],
+        ):
+            ws.cell(row, col).value = None
+
+
 def _required_r3_end_row(characteristic_count: int) -> int:
     return max(R3_TEMPLATE_END_ROW, R3_START_ROW + max(characteristic_count, 1) - 1)
 
@@ -178,9 +230,10 @@ def _ensure_r3_row_capacity(ws, characteristic_count: int) -> int:
 def _reset_r3_rows(ws, start_row: int, end_row: int) -> None:
     for row in range(start_row, end_row + 1):
         ws.cell(row=row, column=R3_COLUMNS["Char Number"]).value = row - start_row + 1
-        for header in ["Reference Location", "Requirement LSL", "Requirement Nominal", "Requirement USL", "Type", "Supplier Actual", "Supplier Yes", "Supplier No", "company Actual", "Tooling Used", "Comments"]:
+        for header in ["Reference Location", "Requirement LSL", "Requirement Nominal", "Requirement USL", "Type", "Supplier Actual", "Supplier Yes", "Supplier No", "Inspection Actual", "Tooling Used", "Comments"]:
             ws.cell(row=row, column=R3_COLUMNS[header]).value = None
-        ws.cell(row=row, column=R3_COLUMNS["In Spec"]).value = _r3_inclusive_formula(row)
+        # The output formula is guarded only when a characteristic is used.
+        # Empty rows are explicitly cleared after filling, including K.
 
 
 def _apply_r3_editable_layout(ws, end_row: int) -> None:
@@ -237,14 +290,157 @@ def _fill_r3_form(ws, characteristics: list[Any]) -> int:
         ws.cell(row=row, column=R3_COLUMNS["Requirement Nominal"]).value = values["Requirement Nominal"]
         ws.cell(row=row, column=R3_COLUMNS["Requirement USL"]).value = values["Requirement USL"]
         ws.cell(row=row, column=R3_COLUMNS["Type"]).value = values["Type"]
-        ws.cell(row=row, column=R3_COLUMNS["company Actual"]).value = None
-        ws.cell(row=row, column=R3_COLUMNS["In Spec"]).value = _r3_inclusive_formula(row)
+        ws.cell(row=row, column=R3_COLUMNS["Inspection Actual"]).value = None
+        # Guard original acceptance logic against empty actuals/limits.
+        _guard_original_passfail(ws, row)
         ws.cell(row=row, column=R3_COLUMNS["Tooling Used"]).value = values["Tooling Used"]
-        ws.cell(row=row, column=R3_COLUMNS["Comments"]).value = values["Comments"]
+        ws.cell(row=row, column=R3_COLUMNS["Comments"]).value = None
+    _clear_unused_fai_rows(ws, R3_START_ROW + len(characteristics), end_row)
     _add_list_validation(ws, f"F{R3_START_ROW}:F{end_row}", "'CHARACTERISTICS'!$A$1:$A$33")
     _add_list_validation(ws, f"M{R3_START_ROW}:M{end_row}", "'TOOLING'!$A$1:$A$10")
     _add_list_validation(ws, f"H{R3_START_ROW}:I{end_row}", "'ATTRIBUTE'!$A$1:$A$2")
     _apply_r3_editable_layout(ws, end_row)
+    return len(characteristics)
+
+
+def _is_formula_master(ws) -> bool:
+    """A controlled form with existing tolerance and disposition formulas.
+
+    Detect the *structure*, not an employer name or filename. Avoid the R3
+    restyling/reset routine for forms that already encode their own logic.
+    """
+    if not _is_r3_form(ws):
+        return False
+    # The freshly generated neutral form intentionally has no preset
+    # tolerance formulas. Its own instruction banner identifies it as a
+    # controlled blank-limit master while leaving all other R3 variants alone.
+    if "Enter actual measurements only after inspection" in str(ws["A17"].value or ""):
+        return True
+    # Traditional controlled masters carry their own C/E formulas. Retain
+    # them in the original source but strip inherited defaults from outputs.
+    return any(
+        isinstance(ws.cell(row, 3).value, str)
+        and ws.cell(row, 3).value.startswith("=")
+        and isinstance(ws.cell(row, 5).value, str)
+        and ws.cell(row, 5).value.startswith("=")
+        for row in range(R3_START_ROW, min(ws.max_row, R3_TEMPLATE_END_ROW) + 1)
+    )
+
+
+def _update_native_bound_formula(ws, row: int, column: int, nominal: Any, limit: Any, status: str) -> None:
+    """Keep tolerance bounds as native Excel formulas, never static substitutes.
+
+    Source-confirmed explicit tolerances can adjust the offset without changing
+    cell formatting. For unverified defaults, retain the template's own formula.
+    """
+    cell = ws.cell(row, column)
+    if status != "explicit" or not isinstance(nominal, (float, int)) or not isinstance(limit, (float, int)):
+        return
+    offset = nominal - limit if column == 3 else limit - nominal
+    if offset < 0:
+        return
+    if offset == 0:
+        proposed = f"=D{row}"
+    else:
+        proposed = f"=D{row}{'-' if column == 3 else '+'}{offset:.10g}"
+    old = cell.value
+    if isinstance(old, str) and old.startswith("="):
+        native = re.fullmatch(rf"=D{row}\s*([+-])\s*(\d+(?:\.\d+)?)", old, re.I)
+        if native:
+            current = float(native.group(2)) * (1 if native.group(1) == ("-" if column == 3 else "+") else -1)
+            if abs(current - offset) < 1e-8:
+                return
+    cell.value = proposed
+
+
+def _template_formula_disagrees(ws, row: int, column: int, nominal: Any, limit: Any) -> bool:
+    """Safely detect unverified mismatch between master formulas and candidate limits."""
+    if not isinstance(nominal, (int, float)) or not isinstance(limit, (int, float)):
+        return True
+    original = ws.cell(row, column).value
+    if not isinstance(original, str) or not original.startswith("="):
+        return True
+    if original.strip().upper() == f"=D{row}":
+        master_offset = 0.0
+    else:
+        matched = re.fullmatch(rf"=D{row}\s*([+-])\s*(\d+(?:\.\d+)?)", original, re.I)
+        if not matched:
+            return True
+        sign = 1 if matched.group(1) == ("-" if column == 3 else "+") else -1
+        master_offset = float(matched.group(2)) * sign
+    expected = nominal - limit if column == 3 else limit - nominal
+    return abs(master_offset - expected) > 0.000001
+
+
+def _verified_title_default(characteristic: Any, metadata: dict[str, Any]) -> bool:
+    """Only adjust native bound formulas for a source-confirmed precision rule."""
+    detected = metadata.get("title_block_detected", {}) or {}
+    raw = str(_safe_cell_value(characteristic, "raw_text", "") or "")
+    dim_type = str(_safe_cell_value(characteristic, "type", "") or "").upper()
+    if dim_type in {"°", "ANGLE", "ANGULAR"}:
+        return "angular" in detected or "angular_bend" in detected or "angular_mach" in detected
+    if "/" in raw and "." not in raw:
+        return "fractional" in detected
+    decimal = re.search(r"\.(\d+)", raw)
+    if decimal:
+        return ("three_place" if len(decimal.group(1)) >= 3 else "two_place") in detected
+    return False
+
+
+def _fill_formula_master(ws, characteristics: list[Any]) -> int:
+    """Fill ONLY inspection data in a native formula-bearing Excel form.
+
+    Preserve the source drawing/image, merged cells, styles, original workbook
+    sheets, print settings, validations, and all unaffected cell formulas.
+    Never insert rows into a controlled master, which could move its footer.
+    """
+    if len(characteristics) > R3_TEMPLATE_CAPACITY:
+        raise ValueError(
+            f"The controlled Excel form holds {R3_TEMPLATE_CAPACITY} characteristics; "
+            "split the inspection into additional forms rather than altering its layout."
+        )
+    _fill_r3_header_metadata(ws, characteristics)
+    # Copy the original form unchanged, then clear ONLY generated-form LSL/USL.
+    # Source templates often contain static ±0.060 formulas in all 25 rows;
+    # those are layout-era placeholders, not evidence from the current print.
+    # Never emit default limits in populated or unused rows.
+    for blank_row in range(R3_START_ROW, R3_TEMPLATE_END_ROW + 1):
+        ws.cell(blank_row, R3_COLUMNS["Requirement LSL"]).value = None
+        ws.cell(blank_row, R3_COLUMNS["Requirement USL"]).value = None
+    for offset, characteristic in enumerate(characteristics):
+        row = R3_START_ROW + offset
+        values = _row_values(characteristic)
+        metadata = _characteristic_metadata(characteristic)
+        ws.cell(row, R3_COLUMNS["Char Number"]).value = _safe_cell_value(characteristic, "char_number", offset + 1)
+        ws.cell(row, R3_COLUMNS["Reference Location"]).value = values["Reference Location"]
+        ws.cell(row, R3_COLUMNS["Requirement Nominal"]).value = values["Requirement Nominal"]
+        ws.cell(row, R3_COLUMNS["Type"]).value = values["Type"]
+        ws.cell(row, R3_COLUMNS["Tooling Used"]).value = values["Tooling Used"]
+        # Never fill inspection measurements or acceptance decisions from OCR.
+        ws.cell(row, R3_COLUMNS["Inspection Actual"]).value = None
+        tolerance_status = str(metadata.get("tolerance_status", "default"))
+        # Only write an Excel tolerance formula when supported by explicit
+        # dimensional tolerance evidence or the correct title-block precision
+        # rule. For unknown rules leave the original formula untouched and
+        # report uncertainty outside the FAI workbook (debug/summary only).
+        source_default = metadata.get("tolerance_source") == "drawing_title_block"
+        if tolerance_status == "explicit" or source_default:
+            for column, limit_header in (
+                (R3_COLUMNS["Requirement LSL"], "Requirement LSL"),
+                (R3_COLUMNS["Requirement USL"], "Requirement USL"),
+            ):
+                _update_native_bound_formula(
+                    ws, row, column, values["Requirement Nominal"],
+                    values[limit_header], "explicit",
+                )
+        # The source K expression remains intact, wrapped only in the output
+        # with a no-measurement/no-limits guard so an empty row cannot pass.
+        _guard_original_passfail(ws, row)
+        # No comments, review notes, or extraction warnings in the FAI form.
+        ws.cell(row, R3_COLUMNS["Comments"]).value = None
+    # The controlled source master has prefilled formulas through row 48.
+    # Blank the entire unused inspection region of the OUTPUT workbook.
+    _clear_unused_fai_rows(ws, R3_START_ROW + len(characteristics))
     return len(characteristics)
 
 
@@ -292,14 +488,16 @@ def _fill_generic(ws, characteristics: list[Any]) -> int:
             _copy_row_style(ws, start_row, row)
         values = _row_values(characteristic)
         for header, value in values.items():
-            if header == "company Actual":
+            if header == "Inspection Actual":
                 value = None
             ws.cell(row=row, column=columns[header]).value = value
-        actual_col = get_column_letter(columns["company Actual"])
+        actual_col = get_column_letter(columns["Inspection Actual"])
         lsl_col = get_column_letter(columns["Requirement LSL"])
         usl_col = get_column_letter(columns["Requirement USL"])
         in_spec_col = columns["In Spec"]
-        ws.cell(row=row, column=in_spec_col).value = f'=IF({actual_col}{row}="","",IF(AND({actual_col}{row}>={lsl_col}{row},{actual_col}{row}<={usl_col}{row}),"X",""))'
+        formula_cell = ws.cell(row=row, column=in_spec_col)
+        if not (isinstance(formula_cell.value, str) and formula_cell.value.startswith("=")):
+            formula_cell.value = f'=IF({actual_col}{row}="","",IF(AND({actual_col}{row}>={lsl_col}{row},{actual_col}{row}<={usl_col}{row}),"X",""))'
     return len(characteristics)
 
 
@@ -329,6 +527,49 @@ def template_row_capacity(template_path: str | Path) -> int | None:
         wb.close()
 
 
+def _save_workbook_with_locked_fallback(book: Any, output_path: Path) -> Path:
+    """Save once, atomically; never fail merely because prior FAI is open.
+
+    Excel commonly locks a workbook on Windows. Save the newly generated
+    workbook to a temporary file in the output directory first, then replace
+    the requested report name if unlocked. If Windows denies that replacement
+    and the old report exists, retain the old report unchanged and choose
+    a new _02, _03 ... filename for the single new workbook instead.
+    This also prevents a failed save from partially corrupting the old report.
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, staged_path = tempfile.mkstemp(
+        prefix=f".{output_path.stem}_",
+        suffix=output_path.suffix,
+        dir=output_path.parent,
+    )
+    os.close(fd)
+    staged = Path(staged_path)
+    try:
+        book.save(staged)
+        try:
+            os.replace(staged, output_path)
+            return output_path
+        except PermissionError:
+            if not output_path.is_file():
+                # Don't disguise an inaccessible output directory as a
+                # locked Excel report.
+                raise
+            for number in range(2, 1000):
+                alternative = output_path.with_name(
+                    f"{output_path.stem}_{number:02d}{output_path.suffix}"
+                )
+                if alternative.exists():
+                    continue
+                os.replace(staged, alternative)
+                return alternative
+            raise RuntimeError("Could not find a free Excel output filename.")
+    finally:
+        if staged.exists():
+            staged.unlink()
+
+
 def fill_fai_template(template_path: str | Path, characteristics: Iterable[Any], output_path: str | Path | None = None) -> Path:
     template_path = Path(template_path)
     characteristics = list(characteristics)
@@ -344,12 +585,133 @@ def fill_fai_template(template_path: str | Path, characteristics: Iterable[Any],
         raise ValueError("FAI Excel output cannot overwrite the original template.")
     keep_vba = template_path.suffix.lower() == ".xlsm"
     wb = load_workbook(template_path, keep_vba=keep_vba)
-    _ensure_list_sheets(wb)
     ws = _pick_sheet(wb)
-    if _is_r3_form(ws):
+    if _is_formula_master(ws):
+        _fill_formula_master(ws, characteristics)
+    elif _is_r3_form(ws):
+        _ensure_list_sheets(wb)
         _fill_r3_form(ws, characteristics)
     else:
         _fill_generic(ws, characteristics)
-    wb.save(output_path)
-    wb.close()
-    return output_path
+    try:
+        saved_path = _save_workbook_with_locked_fallback(wb, output_path)
+    finally:
+        wb.close()
+    return saved_path
+
+
+
+def _image_from_bytes(original: Any, content: bytes) -> Any:
+    """Give each copied Excel image its own independent, still-open stream."""
+    from io import BytesIO
+    from openpyxl.drawing.image import Image
+
+    fresh = Image(BytesIO(content))
+    fresh.anchor = copy.deepcopy(original.anchor)
+    fresh.width = original.width
+    fresh.height = original.height
+    return fresh
+
+
+def _copy_controlled_form_sheet(book: Any, master: Any, part: int, image_bytes: list[tuple[Any, bytes]]) -> Any:
+    """Clone a pristine blank Excel form, including features copy_worksheet omits.
+
+    openpyxl's copy_worksheet copies styled cells, merged ranges, row/column
+    dimensions, and more, but deliberately skips images/charts, validations,
+    conditional formatting and some printing properties. Preserve them here
+    because inspection forms can contain their own logo and native formulas.
+    """
+    continuation = book.copy_worksheet(master)
+    continuation.title = f"{master.title} {part}"
+    # Group all FAI pages as adjacent tabs, ahead of auxiliary list sheets.
+    book.move_sheet(
+        continuation,
+        offset=(book.index(master) + part - 1) - book.index(continuation),
+    )
+    continuation.data_validations = copy.deepcopy(master.data_validations)
+    continuation.conditional_formatting = copy.deepcopy(master.conditional_formatting)
+    continuation.page_margins = copy.deepcopy(master.page_margins)
+    continuation.page_setup = copy.deepcopy(master.page_setup)
+    continuation.print_options = copy.deepcopy(master.print_options)
+    continuation.sheet_properties = copy.deepcopy(master.sheet_properties)
+    continuation.protection = copy.deepcopy(master.protection)
+    continuation.auto_filter = copy.deepcopy(master.auto_filter)
+    continuation.row_breaks = copy.deepcopy(master.row_breaks)
+    continuation.col_breaks = copy.deepcopy(master.col_breaks)
+    continuation.freeze_panes = master.freeze_panes
+    if master.print_area:
+        # Same fixed geometry, different tab name.
+        continuation.print_area = "A1:N48"
+    if master.print_title_rows:
+        continuation.print_title_rows = master.print_title_rows
+    if master.print_title_cols:
+        continuation.print_title_cols = master.print_title_cols
+    for graphic, blob in image_bytes:
+        continuation.add_image(_image_from_bytes(graphic, blob))
+    for chart in master._charts:
+        continuation.add_chart(copy.deepcopy(chart))
+    return continuation
+
+
+def fill_fai_template_pages(
+    template_path: str | Path,
+    characteristics: Iterable[Any],
+    output_path: str | Path,
+) -> list[Path]:
+    """Produce exactly ONE Excel file containing all FAI continuation forms.
+
+    Controlled 25-row templates become one workbook with tabs FAI FORM,
+    FAI FORM 2, FAI FORM 3... . Each tab begins as a copy of the original
+    unmodified blank template, retaining formatting, merged cells, formulas,
+    images, validations and print layout. Characteristic numbers stay global.
+    The list return type remains for compatibility, but contains ONE path.
+    """
+    template_path = Path(template_path)
+    output_path = Path(output_path)
+    chars = list(characteristics)
+    if output_path.resolve() == template_path.resolve():
+        raise ValueError("FAI Excel output cannot overwrite the original template.")
+    if not output_path.suffix.lower() in {".xlsx", ".xlsm"}:
+        raise ValueError("FAI output must be an Excel .xlsx or .xlsm workbook.")
+    book = load_workbook(
+        template_path, data_only=False, keep_vba=template_path.suffix.lower() == ".xlsm"
+    )
+    try:
+        master = _pick_sheet(book)
+        if not _is_r3_form(master):
+            _fill_generic(master, chars)
+        else:
+            native_master = _is_formula_master(master)
+            count = max(1, (len(chars) + R3_TEMPLATE_CAPACITY - 1) // R3_TEMPLATE_CAPACITY)
+            # Every image must have a distinct underlying byte stream.
+            # openpyxl closes image streams while saving; a shallow copy would
+            # leave later images pointing to closed streams.
+            image_bytes = [(graphic, graphic._data()) for graphic in master._images]
+            if image_bytes:
+                master._images.clear()
+                for graphic, blob in image_bytes:
+                    master.add_image(_image_from_bytes(graphic, blob))
+            # Clone before filling any pages, so later tabs remain pristine
+            # instead of inheriting the first page's entered inspection data.
+            sheets = [master] + [
+                _copy_controlled_form_sheet(book, master, part, image_bytes)
+                for part in range(2, count + 1)
+            ]
+            for index, sheet in enumerate(sheets):
+                batch = chars[
+                    index * R3_TEMPLATE_CAPACITY:(index + 1) * R3_TEMPLATE_CAPACITY
+                ]
+                if native_master:
+                    _fill_formula_master(sheet, batch)
+                else:
+                    # Ordinary R3-based sheets also use fixed page geometry;
+                    # never append body rows into a controlled form's footer.
+                    _fill_r3_form(sheet, batch)
+                # A controlled master may pre-number all 25 empty body rows.
+                # Empty slots must not carry phantom balloon numbers,
+                # especially on the final continuation tab.
+                _clear_unused_fai_rows(sheet, R3_START_ROW + len(batch))
+        saved_path = _save_workbook_with_locked_fallback(book, output_path)
+    finally:
+        book.close()
+    return [saved_path]

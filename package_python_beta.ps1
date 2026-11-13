@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 
-$Version = '0.1.0-beta'
+$Version = '0.2.0b1'
 $InstallRoot = Join-Path $env:USERPROFILE 'EZ-FAIR'
 $AppDir = Join-Path $InstallRoot 'app'
 $PackageRoot = Join-Path $InstallRoot 'packages'
@@ -61,6 +61,7 @@ Requirements:
 - Windows PC
 - Python already installed
 - Internet access for first dependency install, unless packages are already installed/cached
+- Scanned PDFs require a separate Tesseract OCR installation and English language data; see README.md
 
 How to run:
 1. Double-click RUN_EZ-FAIR.cmd

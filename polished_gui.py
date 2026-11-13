@@ -10,6 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 from engineering_characteristics import (
+from extractor_active import (
     Characteristic,
     add_pdf_balloons,
     extract_pdf_dimensions,
@@ -17,17 +18,20 @@ from engineering_characteristics import (
     write_debug_report,
 )
 from fai_template_writer import fill_fai_template, template_row_capacity
+from fai_template_writer import fill_fai_template_pages, template_row_capacity
+from ez_fair_enhancements import extract_pdf_dimensions_enhanced
 from local_test_runner import write_extraction_summary
+from default_fai_template import resolve_default_template, save_default_template, reset_default_template
 
 APP_NAME = "EZ-FAIR"
 APP_SUBTITLE = "First Article Inspection Builder"
-APP_BG = "#101820"
-PANEL_BG = "#17232f"
-CARD_BG = "#1d2c3a"
-TEXT = "#edf4ff"
-MUTED = "#9fb2c8"
-ACCENT = "#0b3a75"
-ACCENT_2 = "#1f6fbc"
+APP_BG = "#0F1113"
+PANEL_BG = "#1A1D20"
+CARD_BG = "#22282A"
+TEXT = "#E6EAE7"
+MUTED = "#9FAEB0"
+ACCENT = "#79DE4B"
+ACCENT_2 = "#52A86A"
 
 
 class EzFairApp(tk.Tk):
@@ -39,9 +43,9 @@ class EzFairApp(tk.Tk):
         self.configure(bg=APP_BG)
 
         self.pdf_path = tk.StringVar()
-        self.template_path = tk.StringVar()
+        self.template_path = tk.StringVar(value=str(resolve_default_template()))
         self.output_dir = tk.StringVar(value=str(Path.cwd() / "local_outputs"))
-        self.status_text = tk.StringVar(value="Ready. Pick a PDF and FAI template, then extract.")
+        self.status_text = tk.StringVar(value="Ready. Select a PDF; built-in Excel FAI form is preselected.")
         self.characteristics: list[Characteristic] = []
         self.generated_outputs: dict[str, Path] = {}
         self._busy = False
@@ -78,12 +82,15 @@ class EzFairApp(tk.Tk):
         style.configure("Body.TLabel", background=PANEL_BG, foreground=TEXT, font=("Segoe UI", 9))
         style.configure("Muted.TLabel", background=PANEL_BG, foreground=MUTED, font=("Segoe UI", 9))
         style.configure("Status.TLabel", background=APP_BG, foreground=MUTED, font=("Segoe UI", 9))
-        style.configure("TButton", font=("Segoe UI", 9), padding=(12, 7))
+        style.configure("TButton", background=CARD_BG, foreground=TEXT, font=("Segoe UI", 9), padding=(12, 7))
+        style.map("TButton", background=[("active", PANEL_BG)], foreground=[("active", TEXT)])
+        style.configure("TEntry", fieldbackground=CARD_BG, foreground=TEXT, insertcolor=ACCENT)
+        style.configure("TCombobox", fieldbackground=CARD_BG, foreground=TEXT, selectbackground=ACCENT_2, selectforeground="#0F160D")
         style.configure("Accent.TButton", font=("Segoe UI", 9, "bold"), padding=(14, 8))
-        style.map("Accent.TButton", background=[("active", ACCENT_2), ("!disabled", ACCENT)], foreground=[("!disabled", "white")])
-        style.configure("Treeview", background="#f8fbff", foreground="#18212b", fieldbackground="#f8fbff", rowheight=25, font=("Segoe UI", 9))
-        style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"), padding=(6, 6))
-        style.map("Treeview", background=[("selected", ACCENT_2)], foreground=[("selected", "white")])
+        style.map("Accent.TButton", background=[("active", ACCENT_2), ("!disabled", ACCENT)], foreground=[("!disabled", "#0F160D")])
+        style.configure("Treeview", background=CARD_BG, foreground=TEXT, fieldbackground=CARD_BG, rowheight=27, font=("Segoe UI", 9))
+        style.configure("Treeview.Heading", background=PANEL_BG, foreground=TEXT, font=("Segoe UI", 9, "bold"), padding=(6, 6))
+        style.map("Treeview", background=[("selected", ACCENT_2)], foreground=[("selected", "#0F160D")])
 
     def _build_ui(self) -> None:
         root = ttk.Frame(self, style="Root.TFrame", padding=18)
@@ -113,6 +120,7 @@ class EzFairApp(tk.Tk):
         ttk.Button(actions, text="Generate Outputs", command=self.generate_outputs).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(actions, text="Delete Selected Rows", command=self.delete_selected).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(actions, text="Clear", command=self.clear_table).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(actions, text="Use Built-In FAI", command=self.use_builtin_template).pack(side=tk.LEFT, padx=(8, 0))
 
         mid = ttk.Frame(root, style="Root.TFrame")
         mid.pack(fill=tk.BOTH, expand=True)
@@ -141,12 +149,12 @@ class EzFairApp(tk.Tk):
         side.pack(side=tk.RIGHT, fill=tk.Y, padx=(12, 0))
         side.pack_propagate(False)
         ttk.Label(side, text="Run Log", style="PanelTitle.TLabel").pack(anchor="w")
-        self.log_box = tk.Text(side, height=20, bg="#0b1118", fg="#d7e6f8", insertbackground="white", relief=tk.FLAT, wrap=tk.WORD, font=("Consolas", 9))
+        self.log_box = tk.Text(side, height=20, bg=APP_BG, fg=TEXT, insertbackground=ACCENT, relief=tk.FLAT, wrap=tk.WORD, font=("Consolas", 9))
         self.log_box.pack(fill=tk.BOTH, expand=True, pady=(10, 10))
         self.log_box.insert(tk.END, "EZ-FAIR ready.\n")
         self.log_box.configure(state=tk.DISABLED)
         ttk.Label(side, text="Outputs", style="PanelTitle.TLabel").pack(anchor="w", pady=(4, 0))
-        self.output_list = tk.Listbox(side, height=5, bg="#0b1118", fg="#d7e6f8", selectbackground=ACCENT_2, relief=tk.FLAT, font=("Segoe UI", 9))
+        self.output_list = tk.Listbox(side, height=5, bg=APP_BG, fg=TEXT, selectbackground=ACCENT_2, relief=tk.FLAT, font=("Segoe UI", 9))
         self.output_list.pack(fill=tk.X, pady=(8, 0))
         self.output_list.bind("<Double-1>", self.open_selected_output)
 
@@ -177,7 +185,12 @@ class EzFairApp(tk.Tk):
     def pick_template(self) -> None:
         path = filedialog.askopenfilename(title="Select FAI Excel template", filetypes=[("Excel templates", "*.xlsx *.xlsm"), ("All files", "*.*")])
         if path:
-            self.template_path.set(path)
+            self.template_path.set(str(save_default_template(path)))
+            self.log("Default FAI template set to local file. The source remains on this computer.")
+
+    def use_builtin_template(self) -> None:
+        self.template_path.set(str(reset_default_template()))
+        self.log("Built-in neutral Excel FAI template restored.")
 
     def pick_output_dir(self) -> None:
         path = filedialog.askdirectory(title="Select output folder")
@@ -213,14 +226,15 @@ class EzFairApp(tk.Tk):
 
         def worker() -> None:
             try:
-                chars = extract_pdf_dimensions(pdf)
+                chars = extract_pdf_dimensions_enhanced(pdf)
                 for char in chars:
                     char.metadata.setdefault("drawing_name", pdf.stem)
                 capacity = template_row_capacity(template)
                 skipped = len(get_last_skipped_candidates())
                 self.after(0, lambda: self._load_extraction(chars, capacity, skipped))
             except Exception as exc:
-                self.after(0, lambda: self._show_error("Extraction failed", exc))
+                error_text = str(exc)
+                self.after(0, lambda message=error_text: self._show_error("Extraction failed", message))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -228,7 +242,11 @@ class EzFairApp(tk.Tk):
         self.characteristics = chars
         self.refresh_table()
         self.set_busy(False)
-        self.log(f"Extracted {len(chars)} characteristics. Skipped {skipped} candidates.")
+        verified = sum(c.metadata.get("evidence_status") == "corroborated" for c in chars)
+        reviews = sum(bool(c.metadata.get("review_required")) for c in chars)
+        self.log(f"Extracted {len(chars)} characteristics; {verified} supported by both paths, {reviews} flagged for review. Skipped {skipped} native candidates.")
+        if chars and chars[0].metadata.get("ocr_unavailable"):
+            self.log("OCR unavailable: native PDF findings retained; install/check Tesseract for parallel OCR.")
 
     def refresh_table(self) -> None:
         self.tree.delete(*self.tree.get_children())
@@ -321,14 +339,19 @@ class EzFairApp(tk.Tk):
                 fai = output_dir / f"{pdf.stem}_FAI{suffix}"
                 debug = output_dir / "EZ_FAI_DEBUG_REPORT.txt"
                 summary = output_dir / "EXTRACTION_SUMMARY.txt"
+                excel_forms = fill_fai_template_pages(template, self.characteristics, fai)
                 add_pdf_balloons(pdf, self.characteristics, ballooned)
-                fill_fai_template(template, self.characteristics, fai)
                 write_debug_report(pdf, template, self.characteristics, debug)
                 write_extraction_summary(summary, self.characteristics, get_last_skipped_candidates(), template_row_capacity(template))
-                outputs = {"Ballooned PDF": ballooned, "FAI Excel": fai, "Debug report": debug, "Extraction summary": summary}
+                outputs = {"Ballooned PDF": ballooned}
+                for index, form_path in enumerate(excel_forms, start=1):
+                    label = "FAI Excel" if len(excel_forms) == 1 else f"FAI Excel {index}/{len(excel_forms)}"
+                    outputs[label] = form_path
+                outputs.update({"Debug report": debug, "Extraction summary": summary})
                 self.after(0, lambda: self._outputs_done(outputs))
             except Exception as exc:
-                self.after(0, lambda: self._show_error("Output generation failed", exc))
+                error_text = str(exc)
+                self.after(0, lambda message=error_text: self._show_error("Output generation failed", message))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -338,9 +361,17 @@ class EzFairApp(tk.Tk):
         for label, path in outputs.items():
             self.output_list.insert(tk.END, f"{label}: {path.name}")
         self.set_busy(False)
-        self.log("Outputs generated successfully. Double-click an output to open it.")
+        try:
+            capacity = template_row_capacity(Path(self.template_path.get()))
+        except (OSError, ValueError):
+            capacity = None
+        pages = max(1, (len(self.characteristics) + capacity - 1) // capacity) if capacity == 25 else 1
+        self.log(
+            f"Outputs generated successfully: ONE Excel FAI workbook with "
+            f"{pages} original-layout form tab(s). Double-click to open."
+        )
 
-    def _show_error(self, title: str, exc: Exception) -> None:
+    def _show_error(self, title: str, exc: Exception | str) -> None:
         self.set_busy(False)
         self.log(f"{title}: {exc}")
         messagebox.showerror(APP_NAME, f"{title}:\n\n{exc}")

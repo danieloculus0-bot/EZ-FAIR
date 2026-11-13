@@ -1,6 +1,10 @@
+param(
+    [string]$ExpectedSha256 = ''
+)
+
 $ErrorActionPreference = 'Stop'
 
-$RepoZipUrl = 'https://github.com/danieloculus0-bot/EZ-FAIR/archive/refs/heads/main.zip'
+$RepoZipUrl = 'https://github.com/danieloculus0-bot/EZ-FAIR/archive/refs/tags/v0.2.0b1.zip'
 $InstallRoot = Join-Path $env:USERPROFILE 'EZ-FAIR'
 $SourceDir = Join-Path $InstallRoot 'app'
 $VenvDir = Join-Path $InstallRoot '.venv'
@@ -12,7 +16,7 @@ $DesktopShortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) 'EZ-FAIR.
 $StartMenuDir = Join-Path ([Environment]::GetFolderPath('Programs')) 'EZ-FAIR'
 $StartMenuShortcut = Join-Path $StartMenuDir 'EZ-FAIR.lnk'
 $TempDir = Join-Path $env:TEMP ('ezfair_install_' + [Guid]::NewGuid().ToString('N'))
-$ZipPath = Join-Path $TempDir 'EZ-FAIR-main.zip'
+$ZipPath = Join-Path $TempDir 'EZ-FAIR-v0.2.0b1.zip'
 $ExtractDir = Join-Path $TempDir 'extract'
 
 function Write-Step($Message) {
@@ -71,6 +75,14 @@ New-Item -ItemType Directory -Force -Path $InstallRoot, $BinDir, $TempDir, $Extr
 
 Write-Step 'Downloading EZ-FAIR from GitHub'
 Invoke-WebRequest -Uri $RepoZipUrl -OutFile $ZipPath -UseBasicParsing
+if ($ExpectedSha256) {
+    $ActualSha256 = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash
+    if ($ActualSha256 -ine $ExpectedSha256) {
+        throw "EZ-FAIR archive checksum mismatch. Expected $ExpectedSha256, got $ActualSha256."
+    }
+} else {
+    Write-Warning 'The release tag pins the source version, but no independent ZIP SHA-256 was supplied. Use -ExpectedSha256 when verifying an approved archive.'
+}
 
 Write-Step 'Extracting repo files'
 Expand-Archive -Path $ZipPath -DestinationPath $ExtractDir -Force
@@ -109,7 +121,12 @@ if (Test-Path `$Pythonw) {
 }
 "@
 Set-Content -Path $LauncherPs1 -Value $LauncherPs1Content -Encoding UTF8
-Set-Content -Path $LauncherCmd -Value '@echo off`r`npowershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Launch-EZ-FAIR.ps1"`r`n' -Encoding ASCII
+$LauncherCmdLines = @(
+    '@echo off',
+    'powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Launch-EZ-FAIR.ps1"',
+    'if errorlevel 1 pause'
+)
+Set-Content -Path $LauncherCmd -Value $LauncherCmdLines -Encoding ASCII
 
 Write-Step 'Creating Desktop and Start Menu shortcuts'
 New-Item -ItemType Directory -Force -Path $StartMenuDir | Out-Null
@@ -117,15 +134,23 @@ New-Shortcut -ShortcutPath $DesktopShortcut -TargetPath $LauncherCmd -Arguments 
 New-Shortcut -ShortcutPath $StartMenuShortcut -TargetPath $LauncherCmd -Arguments '' -WorkingDirectory $SourceDir -IconLocation $IconPath
 
 Write-Step 'Running sanity check'
-$CheckScript = Join-Path $TempDir 'check_ezfair.py'
-Set-Content -Path $CheckScript -Value "import fitz, openpyxl, ez_fai_builder, fai_template_writer, polished_gui; print('EZ-FAIR imports OK')" -Encoding UTF8
 Push-Location $SourceDir
-& $PythonExe $CheckScript
+& $PythonExe -c "import pymupdf, openpyxl, ez_fair, ez_fair_enhancements, extractor_active, polished_gui; print('EZ-FAIR imports OK')"
+if ($LASTEXITCODE -ne 0) { throw 'EZ-FAIR Python import sanity check failed.' }
 Pop-Location
+
+Write-Step 'Checking optional offline OCR engine'
+$Tesseract = Get-Command 'tesseract.exe' -ErrorAction SilentlyContinue
+if (-not $Tesseract) {
+    $CommonTesseract = Join-Path $env:ProgramFiles 'Tesseract-OCR\tesseract.exe'
+    if (-not (Test-Path $CommonTesseract)) {
+        Write-Warning 'Scanned PDF OCR requires a separate Tesseract installation with English language data. See README.md. Vector PDF extraction still works.'
+    }
+}
 
 Write-Step 'Install complete'
 Write-Host "Installed to: $InstallRoot" -ForegroundColor Green
 Write-Host "Desktop launcher: $DesktopShortcut" -ForegroundColor Green
 Write-Host "Double-click EZ-FAIR on the desktop to launch it." -ForegroundColor Green
 Write-Host ''
-Write-Host 'Say next when done.'
+Write-Host 'Run the desktop shortcut to start EZ-FAIR.'

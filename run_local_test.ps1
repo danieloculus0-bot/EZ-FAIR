@@ -18,7 +18,7 @@ if ($PdfFiles.Count -ne 1) {
 
 if ($ExcelFiles.Count -ne 1) {
     Write-Host "Expected exactly one Excel template (.xlsx or .xlsm) in $InputDir, found $($ExcelFiles.Count)." -ForegroundColor Yellow
-    Write-Host "Place the corrected company FAI template in local_inputs and run again."
+    Write-Host "Place the corrected generic FAI template in local_inputs and run again."
     exit 1
 }
 

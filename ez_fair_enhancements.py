@@ -14,9 +14,11 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any
 
-import fitz
+import pymupdf as fitz
 
 import ez_fai_builder as base
+from dimension_tolerance import tolerance_for_candidate
+from ocr_support import configure_tesseract
 
 try:
     import pytesseract
@@ -73,18 +75,69 @@ GDT_WORD_PATTERN = re.compile(
 GDT_TOL_PATTERN = re.compile(r"(?:[Ø⌀]\s*)?(?P<tol>(?:\d+\.\d+|\.\d+))")
 DATUM_PATTERN = re.compile(r"(?:^|[|\s])([A-Z])(?:[|\s]|$)")
 
-# Title-block forms such as .XX ±.02, X.XX +/-.02, ANGLES ±2°.
+# Tolerance notes must be extracted from the DRAWING, not guessed from the
+# generic spreadsheet's C/E formulas. These expressions support both written
+# precision ("THREE PLACE DECIMAL") and X.XXX style CAD title blocks.
+# Many CAD title blocks list tolerances as "MACH .5 BEND 1" or
+# "THREE PLACE DECIMAL 0.01", with no printed ± character.
+# The explicit label anchors each value; a ± marker is optional.
+_TOL_SIGN = r"(?:±|\+\/-|\+\s*/\s*-)?"
+_TITLE_NUMBER = r"((?:\d+\.\d+|\.\d+|\d+))"
 TITLE_TOL_PATTERNS = {
     "three_place": [
-        re.compile(r"(?:\.XXX|X\.XXX|3\s*PLACE\w*)\s*(?:=|:)?\s*(?:±|\+/-)\s*(\.?(?:\d+\.\d+|\d+))", re.I),
+        re.compile(r"(?:\b(?:THREE|3)\s+PLACE(?:\s+DECIMAL)?\b|(?:X)?\.XXX)\s*(?:=|:)?\s*" + _TOL_SIGN + r"\s*" + _TITLE_NUMBER, re.I),
     ],
     "two_place": [
-        re.compile(r"(?:\.XX|X\.XX|2\s*PLACE\w*)\s*(?:=|:)?\s*(?:±|\+/-)\s*(\.?(?:\d+\.\d+|\d+))", re.I),
+        re.compile(r"(?:\b(?:TWO|2)\s+PLACE(?:\s+DECIMAL)?\b|(?:X)?\.XX(?!X))\s*(?:=|:)?\s*" + _TOL_SIGN + r"\s*" + _TITLE_NUMBER, re.I),
+    ],
+    "angular_bend": [
+        re.compile(r"\bBEND(?:ING)?\b\s*(?:=|:)?\s*" + _TOL_SIGN + r"\s*" + _TITLE_NUMBER, re.I),
+    ],
+    "angular_mach": [
+        re.compile(r"\bMACH(?:INED|INING)?\b\s*(?:=|:)?\s*" + _TOL_SIGN + r"\s*" + _TITLE_NUMBER, re.I),
     ],
     "angular": [
-        re.compile(r"(?:ANGLE\w*|ANGULAR)\s*(?:=|:)?\s*(?:±|\+/-)\s*(\d+(?:\.\d+)?)", re.I),
+        re.compile(r"\b(?:ANGLES?|ANGULAR)\b\s*(?:=|:)?\s*" + _TOL_SIGN + r"\s*" + _TITLE_NUMBER, re.I),
     ],
 }
+TITLE_FRACTION_PATTERN = re.compile(
+    r"\bFRACTIONAL\b\s*(?:=|:)?\s*" + _TOL_SIGN + r"\s*(\d+)\s*/\s*(\d+)", re.I
+)
+
+
+def parse_title_block_tolerances(text: str) -> dict[str, float]:
+    """Parse independent dimension-category rules from a drawing title note."""
+    normalized = (
+        str(text).replace("＋", "+").replace("−", "-").replace("–", "-")
+        .replace("＋／－", "+/-").replace("º", "°")
+    )
+    # PDF text can break across spans/lines; normalize whitespace while
+    # respecting each labeled precision category and its immediately following
+    # tolerance, never borrowing another category's value.
+    normalized = " ".join(normalized.split())
+    detected: dict[str, float] = {}
+    for key, patterns in TITLE_TOL_PATTERNS.items():
+        for pattern in patterns:
+            match = pattern.search(normalized)
+            if match:
+                value = float(match.group(1))
+                if 0 < value <= (360.0 if key.startswith("angular") else 1.0):
+                    detected[key] = value
+                    break
+    fractional = TITLE_FRACTION_PATTERN.search(normalized)
+    if fractional:
+        denominator = int(fractional.group(2))
+        numerator = int(fractional.group(1))
+        if denominator and 0 < numerator / denominator <= 1:
+            detected["fractional"] = numerator / denominator
+    # For bent-metal prints, angles without an explicit MACH qualification
+    # use the bend category; machinery-specific angles use angular_mach.
+    if "angular" not in detected:
+        if "angular_bend" in detected:
+            detected["angular"] = detected["angular_bend"]
+        elif "angular_mach" in detected:
+            detected["angular"] = detected["angular_mach"]
+    return detected
 
 
 def _apply_settings(settings: ExtractionSettings) -> None:
@@ -101,10 +154,17 @@ def _page_ocr_words(page: fitz.Page, dpi: int) -> list[tuple[Any, ...]]:
             "This PDF has no extractable vector text. Install pytesseract and Pillow, "
             "and install the offline Tesseract OCR engine, then retry."
         )
+    configure_tesseract(pytesseract)
     scale = dpi / 72.0
     pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
     image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-    data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT, config="--psm 11")
+    try:
+        data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT, config="--psm 11")
+    except pytesseract.TesseractError as exc:
+        raise RuntimeError(
+            "Tesseract OCR failed. Verify the English language data is installed "
+            "and the scanned drawing is legible, then retry."
+        ) from exc
     words: list[tuple[Any, ...]] = []
     for index, text in enumerate(data.get("text", [])):
         text = str(text).strip()
@@ -163,7 +223,8 @@ def _extract_from_ocr(pdf_path: Path, settings: ExtractionSettings) -> list[base
                 if key in seen:
                     continue
                 seen.add(key)
-                lsl, usl = base.calculate_tolerance_limits(nominal, number_text, dim_type, line_text)
+                tol_context, tolerance_status = tolerance_for_candidate(line_text, base.DIMENSION_PATTERN, number_text)
+                lsl, usl = base.calculate_tolerance_limits(nominal, number_text, dim_type, tol_context)
                 characteristics.append(base.Characteristic(
                     char_number=len(characteristics) + 1,
                     reference_location=base._reference_location(page, candidate_rect, page_index),
@@ -175,30 +236,53 @@ def _extract_from_ocr(pdf_path: Path, settings: ExtractionSettings) -> list[base
                     rect=(candidate_rect.x0, candidate_rect.y0, candidate_rect.x1, candidate_rect.y1),
                     raw_text=raw,
                     tooling=base.DEFAULT_TOOLING.get(dim_type, ""),
-                    metadata={"source": line_text or candidate_text, "nearby": nearby, "drawing_name": pdf_path.stem, "extraction": "OCR"},
+                    metadata={"source": line_text or candidate_text, "nearby": nearby, "drawing_name": pdf_path.stem, "extraction": "OCR", "tolerance_status": tolerance_status, "tolerance_review_required": tolerance_status == "review_required"},
                 ))
     base.LAST_EXTRACTION_DEBUG["skipped"] = skipped
     return characteristics
 
 
 def detect_title_block_defaults(pdf_path: str | Path, settings: ExtractionSettings) -> dict[str, float]:
+    """Scan lower drawing title notes, including notes LEFT of title/REV boxes.
+
+    The earlier rightmost-45% crop missed many actual tolerance tables, which
+    often occupy the middle or lower-left strip beside the drawing title.
+    Check native PDF text AND OCR when available; divergent readings are not
+    treated as verified source tolerances.
+    """
     detected: dict[str, float] = {}
+    uncertain: set[str] = set()
     with fitz.open(pdf_path) as doc:
         for page in doc:
-            clip = fitz.Rect(page.rect.width * 0.55, page.rect.height * 0.55, page.rect.width, page.rect.height)
-            text = page.get_text("text", clip=clip)
-            if not text.strip() and settings.enable_ocr_fallback:
-                words = _page_ocr_words(page, settings.ocr_dpi)
-                text = " ".join(str(word[4]) for word in words if clip.intersects(base._word_rect(word)))
-            normalized = text.replace("＋", "+").replace("−", "-")
-            for key, patterns in TITLE_TOL_PATTERNS.items():
-                if key in detected:
-                    continue
-                for pattern in patterns:
-                    match = pattern.search(normalized)
-                    if match:
-                        detected[key] = float(match.group(1))
-                        break
+            clip = fitz.Rect(
+                0, page.rect.height * 0.53, page.rect.width, page.rect.height
+            )
+            sources = [page.get_text("text", clip=clip)]
+            if settings.enable_ocr_fallback:
+                try:
+                    words = _page_ocr_words(page, settings.ocr_dpi)
+                    sources.append(
+                        " ".join(
+                            str(word[4]) for word in words
+                            if clip.intersects(base._word_rect(word))
+                        )
+                    )
+                except (RuntimeError, OSError):
+                    pass
+            for content in sources:
+                parsed = parse_title_block_tolerances(content)
+                for key, value in parsed.items():
+                    if key in uncertain:
+                        continue
+                    if key in detected and abs(detected[key] - value) > 1e-6:
+                        # Contradictory readings: don't silently choose one.
+                        detected.pop(key, None)
+                        uncertain.add(key)
+                    else:
+                        detected[key] = value
+    # If a category conflicts, don't derive a default angular value from it.
+    if "angular" in uncertain:
+        detected.pop("angular", None)
     return detected
 
 
@@ -250,27 +334,7 @@ def extract_gdt_characteristics(pdf_path: str | Path, start_number: int, setting
     return results
 
 
-def extract_pdf_dimensions_enhanced(pdf_path: str | Path, settings: ExtractionSettings | None = None) -> list[base.Characteristic]:
-    settings = settings or ExtractionSettings.load()
-    if settings.auto_detect_title_block:
-        detected = detect_title_block_defaults(pdf_path, settings)
-        for key, value in detected.items():
-            setattr(settings, key, value)
-    _apply_settings(settings)
-
-    characteristics = base.extract_pdf_dimensions(pdf_path)
-    vector_count = len(characteristics)
-    if vector_count == 0 and settings.enable_ocr_fallback:
-        characteristics = _extract_from_ocr(Path(pdf_path), settings)
-
-    gdt = extract_gdt_characteristics(pdf_path, len(characteristics) + 1, settings)
-    characteristics.extend(gdt)
-    for index, characteristic in enumerate(characteristics, start=1):
-        characteristic.char_number = index
-        characteristic.metadata.setdefault("title_block_defaults", {
-            "two_place": settings.two_place,
-            "three_place": settings.three_place,
-            "angular": settings.angular,
-        })
-        characteristic.metadata.setdefault("vector_characteristics", vector_count)
-    return characteristics
+def extract_pdf_dimensions_enhanced(pdf_path: str | Path, settings: ExtractionSettings | None = None):
+    """Use the same native-plus-OCR evidence engine as the polished GUI."""
+    from hybrid_extraction import extract_pdf_dimensions_hybrid
+    return extract_pdf_dimensions_hybrid(pdf_path, settings)

@@ -60,7 +60,7 @@ New-Shortcut -ShortcutPath $StartMenuShortcut -TargetPath $LauncherCmd -Argument
 
 Write-Step 'Running import check'
 Push-Location $SourceDir
-& $PythonExe -c "import fitz, openpyxl, ez_fai_builder, fai_template_writer, local_test_runner, polished_gui; print('imports OK')"
+& $PythonExe -c "import pymupdf as fitz, openpyxl, ez_fai_builder, fai_template_writer, local_test_runner, polished_gui; print('imports OK')"
 Pop-Location
 
 Write-Step 'Launching EZ-FAIR in debug mode'

@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ez-fair"
+version = "0.2.0b1"
+description = "Local, review-required first article inspection extraction and form builder"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "PyMuPDF==1.26.7",
+    "openpyxl==3.1.5",
+    "Pillow==12.3.0",
+    "pytesseract==0.3.13",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Win32 (MS Windows)",
+    "Programming Language :: Python :: 3",
+]
+
+[project.gui-scripts]
+ez-fair = "polished_gui:main"
+
+[tool.setuptools]
+py-modules = [
+    "controlled_handoff", "dimension_tolerance", "extractor_active",
+    "extractor_engine", "extractor_fraction_weld_patch",
+    "extractor_precision_patch", "ez_fai_builder", "ez_fair",
+    "ez_fair_enhancements", "fai_template_writer", "hybrid_extraction", "default_fai_template",
+    "local_test_runner", "ocr_support", "polished_gui",
+]

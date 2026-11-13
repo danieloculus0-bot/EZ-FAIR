@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-import fitz
+import pymupdf as fitz
 from openpyxl import Workbook
 
 
@@ -40,7 +40,7 @@ def make_demo_template(path: Path) -> Path:
     headers = [
         'Char Number', 'Reference Location', 'Requirement LSL',
         'Requirement Nominal', 'Requirement USL', 'Type',
-        'company Actual', 'In Spec', 'Tooling Used', 'Comments',
+        'Inspection Actual', 'In Spec', 'Tooling Used', 'Comments',
     ]
     for col, header in enumerate(headers, start=1):
         ws.cell(row=1, column=col).value = header

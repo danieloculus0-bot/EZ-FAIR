@@ -13,3 +13,6 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+
+# Private operator overrides and locally-generated neutral workbook
+local_templates/

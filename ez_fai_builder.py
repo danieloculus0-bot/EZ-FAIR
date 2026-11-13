@@ -11,13 +11,15 @@ import copy
 import re
 import tkinter as tk
 from dataclasses import dataclass, field
+from dimension_tolerance import tolerance_for_candidate
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Iterable
 
-import fitz  # PyMuPDF
+import pymupdf as fitz  # PyMuPDF
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
+from default_fai_template import resolve_default_template, save_default_template, reset_default_template
 
 TITLE_BLOCK_DEFAULTS = {
     "two_place": 0.02,
@@ -39,7 +41,7 @@ FAI_HEADERS = [
     "Requirement Nominal",
     "Requirement USL",
     "Type",
-    "company Actual",
+    "Inspection Actual",
     "In Spec",
     "Tooling Used",
     "Comments",
@@ -53,7 +55,7 @@ HEADER_ALIASES = {
     "Requirement Nominal": ["requirement nominal", "nominal", "requirement", "dimension", "specified requirement"],
     "Requirement USL": ["requirement usl", "usl", "upper spec limit", "upper limit", "maximum", "max"],
     "Type": ["type", "characteristic type", "dim type"],
-    "company Actual": ["company actual", "actual", "actual result", "measured actual", "measurement"],
+    "Inspection Actual": ["Inspection Actual", "actual", "actual result", "measured actual", "measurement"],
     "In Spec": ["in spec", "inspec", "pass fail", "pass/fail", "accept", "result"],
     "Tooling Used": ["tooling used", "tooling", "tool used", "gage", "gauge", "inspection tool"],
     "Comments": ["comments", "comment", "notes", "remark", "remarks"],
@@ -99,7 +101,7 @@ class Characteristic:
             "Requirement Nominal": self.nominal,
             "Requirement USL": self.usl,
             "Type": self.type,
-            "company Actual": self.actual,
+            "Inspection Actual": self.actual,
             "Tooling Used": self.tooling,
             "Comments": self.comments,
         }
@@ -205,7 +207,9 @@ def _noise_reason(text: str, context: str) -> str:
     if IGNORE_CONTEXT_PATTERN.search(combined) and not DIMENSIONAL_NOTE_PATTERN.search(combined):
         return "title block / revision / non-dimensional context"
     compact = re.sub(r"[\s\-().]", "", combined)
-    digits = re.sub(r"\D", "", combined)
+    # Reject long identifiers based on the candidate itself. Counting nearby
+    # dimensions and tolerances together wrongly rejects entire drawing lines.
+    digits = re.sub(r"\D", "", text)
     if len(digits) >= 7 and not DIMENSIONAL_NOTE_PATTERN.search(combined):
         return "long numeric identifier, phone/date/drawing-number-like text"
     if re.search(r"\b(?:PO|PURCHASE\s*ORDER|ORDER\s*NO|INSPECTOR|ITEM\s*NO|REASON)\b", combined, re.I):
@@ -315,7 +319,8 @@ def extract_pdf_dimensions(pdf_path: str | Path) -> list[Characteristic]:
                     continue
                 seen.add(coarse_key)
 
-                lsl, usl = calculate_tolerance_limits(nominal, number_text, dim_type, line_text)
+                tol_context, tolerance_status = tolerance_for_candidate(line_text, DIMENSION_PATTERN, number_text)
+                lsl, usl = calculate_tolerance_limits(nominal, number_text, dim_type, tol_context)
                 characteristics.append(
                     Characteristic(
                         char_number=len(characteristics) + 1,
@@ -329,7 +334,7 @@ def extract_pdf_dimensions(pdf_path: str | Path) -> list[Characteristic]:
                         raw_text=raw,
                         tooling=DEFAULT_TOOLING.get(dim_type, ""),
                         comments=default_comment,
-                        metadata={"source": line_text or candidate_text, "nearby": nearby, "drawing_name": pdf_path.stem},
+                        metadata={"source": line_text or candidate_text, "nearby": nearby, "drawing_name": pdf_path.stem, "tolerance_status": tolerance_status, "tolerance_review_required": tolerance_status == "review_required"},
                     )
                 )
 
@@ -466,7 +471,7 @@ def _find_header_row(ws) -> tuple[int, dict[str, int]]:
         if len(mapping) > len(best_mapping):
             best_row, best_mapping = row, mapping
 
-    # A corrected company template should already contain most row headers. For
+    # A corrected generic template should already contain most row headers. For
     # very sparse ad-hoc templates, create a simple table instead of writing into
     # random cells. Admin fields like PO/order/inspector/item/reason are never in
     # FAI_HEADERS, so this writer leaves them blank.
@@ -531,7 +536,7 @@ def fill_fai_template(template_path: str | Path, characteristics: list[Character
         for admin_col in admin_columns:
             ws.cell(row=row, column=admin_col).value = None
 
-        actual_col = columns["company Actual"]
+        actual_col = columns["Inspection Actual"]
         lsl_col = columns["Requirement LSL"]
         usl_col = columns["Requirement USL"]
         in_spec_col = columns["In Spec"]
@@ -706,7 +711,7 @@ class EZFAIBuilderApp(tk.Tk):
         self.title("EZ FAI Builder")
         self.geometry("1100x650")
         self.pdf_path: Path | None = None
-        self.template_path: Path | None = None
+        self.template_path: Path | None = resolve_default_template()
         self.characteristics: list[Characteristic] = []
         self._build_ui()
 
@@ -719,8 +724,9 @@ class EZFAIBuilderApp(tk.Tk):
         self.pdf_label.grid(row=0, column=1, sticky="w", padx=4)
 
         ttk.Button(top, text="Select Excel Template", command=self.select_template).grid(row=1, column=0, padx=4, pady=4)
-        self.template_label = ttk.Label(top, text="No Excel template selected")
+        self.template_label = ttk.Label(top, text=str(self.template_path))
         self.template_label.grid(row=1, column=1, sticky="w", padx=4)
+        ttk.Button(top, text="Use Built-In FAI", command=self.use_builtin_template).grid(row=1, column=2, padx=4, pady=4)
 
         ttk.Button(top, text="Extract Dimensions", command=self.extract_dimensions).grid(row=2, column=0, padx=4, pady=8)
         ttk.Button(top, text="Generate Ballooned PDF + FAI Excel", command=self.generate_outputs).grid(row=2, column=1, sticky="w", padx=4, pady=8)
@@ -748,8 +754,12 @@ class EZFAIBuilderApp(tk.Tk):
     def select_template(self) -> None:
         filename = filedialog.askopenfilename(title="Select FAI Excel template", filetypes=[("Excel files", "*.xlsx *.xlsm")])
         if filename:
-            self.template_path = Path(filename)
+            self.template_path = save_default_template(filename)
             self.template_label.config(text=str(self.template_path))
+
+    def use_builtin_template(self) -> None:
+        self.template_path = reset_default_template()
+        self.template_label.config(text=str(self.template_path))
 
     def extract_dimensions(self) -> None:
         if not self.pdf_path:
@@ -758,7 +768,8 @@ class EZFAIBuilderApp(tk.Tk):
         try:
             self.status.set("Extracting dimensions...")
             self.update_idletasks()
-            self.characteristics = extract_pdf_dimensions(self.pdf_path)
+            from hybrid_extraction import extract_pdf_dimensions_hybrid
+            self.characteristics = extract_pdf_dimensions_hybrid(self.pdf_path)
             for characteristic in self.characteristics:
                 characteristic.metadata["drawing_name"] = self.pdf_path.stem
             self.review_table.load(self.characteristics)
@@ -784,32 +795,38 @@ class EZFAIBuilderApp(tk.Tk):
             for characteristic in self.characteristics:
                 characteristic.metadata["drawing_name"] = self.pdf_path.stem
             balloon_path = self.pdf_path.with_name(f"{self.pdf_path.stem}_BALLOONED.pdf")
-            fai_path = self.pdf_path.with_name(f"{self.pdf_path.stem}_FAI.xlsx")
+            suffix = ".xlsm" if self.template_path.suffix.lower() == ".xlsm" else ".xlsx"
+            fai_path = self.pdf_path.with_name(f"{self.pdf_path.stem}_FAI{suffix}")
             debug_path = self.pdf_path.with_name("EZ_FAI_DEBUG_REPORT.txt")
+            from fai_template_writer import fill_fai_template_pages
+            excel_forms = fill_fai_template_pages(self.template_path, self.characteristics, fai_path)
             add_pdf_balloons(self.pdf_path, self.characteristics, balloon_path)
-            fill_fai_template(self.template_path, self.characteristics, fai_path)
             write_debug_report(self.pdf_path, self.template_path, self.characteristics, debug_path)
-            self.status.set(f"Created: {balloon_path.name}, {fai_path.name}, and {debug_path.name}")
-            messagebox.showinfo("Outputs created", f"Created:\n{balloon_path}\n{fai_path}\n{debug_path}")
+            form_paths = "\n".join(str(path) for path in excel_forms)
+            self.status.set(f"Created ballooned PDF, {len(excel_forms)} Excel form(s), and debug report.")
+            messagebox.showinfo("Outputs created", f"Created:\n{balloon_path}\n{form_paths}\n{debug_path}")
         except Exception as exc:  # GUI boundary: show recoverable error to user.
             self.status.set("Output generation failed")
             messagebox.showerror("Output generation failed", str(exc))
 
 
-def generate_outputs_for_files(pdf_path: str | Path, template_path: str | Path) -> tuple[Path, Path, Path, list[Characteristic]]:
-    """Extract, balloon, fill Excel, and write debug report for two local files."""
+def generate_outputs_for_files(pdf_path: str | Path, template_path: str | Path | None = None) -> tuple[Path, Path, Path, list[Characteristic]]:
+    """Extract, balloon, fill Excel, and write debug report using the default form."""
     pdf_path = Path(pdf_path)
-    template_path = Path(template_path)
-    characteristics = extract_pdf_dimensions(pdf_path)
+    template_path = Path(template_path) if template_path is not None else resolve_default_template()
+    from hybrid_extraction import extract_pdf_dimensions_hybrid
+    characteristics = extract_pdf_dimensions_hybrid(pdf_path)
     for characteristic in characteristics:
         characteristic.metadata["drawing_name"] = pdf_path.stem
     balloon_path = pdf_path.with_name(f"{pdf_path.stem}_BALLOONED.pdf")
-    fai_path = pdf_path.with_name(f"{pdf_path.stem}_FAI.xlsx")
+    suffix = ".xlsm" if template_path.suffix.lower() == ".xlsm" else ".xlsx"
+    fai_path = pdf_path.with_name(f"{pdf_path.stem}_FAI{suffix}")
     debug_path = pdf_path.with_name("EZ_FAI_DEBUG_REPORT.txt")
+    from fai_template_writer import fill_fai_template_pages
+    excel_forms = fill_fai_template_pages(template_path, characteristics, fai_path)
     add_pdf_balloons(pdf_path, characteristics, balloon_path)
-    fill_fai_template(template_path, characteristics, fai_path)
     write_debug_report(pdf_path, template_path, characteristics, debug_path)
-    return balloon_path, fai_path, debug_path, characteristics
+    return balloon_path, excel_forms[0], debug_path, characteristics
 
 
 def launch_gui() -> None:
@@ -823,7 +840,7 @@ if __name__ == "__main__":
     parser.add_argument("pdf", nargs="?", help="Optional PDF blueprint path for batch generation")
     parser.add_argument("template", nargs="?", help="Optional Excel FAI template path for batch generation")
     args = parser.parse_args()
-    if args.pdf and args.template:
+    if args.pdf:
         ballooned, fai, debug, chars = generate_outputs_for_files(args.pdf, args.template)
         print(f"Extracted {len(chars)} characteristics")
         print(f"Ballooned PDF: {ballooned}")
