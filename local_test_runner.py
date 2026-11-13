@@ -6,6 +6,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Iterable
 
+from engineering_characteristics import (
 from extractor_active import (
     Characteristic,
     SkippedCandidate,
@@ -39,7 +40,7 @@ def _likely_false_positives(characteristics: Iterable[Characteristic]) -> list[C
         context = " ".join(str(characteristic.metadata.get(key, "")) for key in ("source", "nearby")).upper()
         if any(word in context for word in noise_words):
             flagged.append(characteristic)
-        elif characteristic.type == "LINEAR" and abs(characteristic.nominal) > 500:
+        elif characteristic.type == "LINEAR" and isinstance(characteristic.nominal,(int,float)) and abs(characteristic.nominal) > 500:
             flagged.append(characteristic)
     return flagged
 
@@ -48,7 +49,7 @@ def _likely_duplicates(characteristics: Iterable[Characteristic]) -> list[Charac
     seen: dict[tuple[str, float, str], Characteristic] = {}
     duplicates: list[Characteristic] = []
     for characteristic in characteristics:
-        key = (characteristic.type, round(characteristic.nominal, 4), characteristic.reference_location)
+        key = (characteristic.type, (round(characteristic.nominal, 4) if isinstance(characteristic.nominal,(int,float)) else str(characteristic.nominal)), characteristic.reference_location)
         if key in seen:
             duplicates.append(characteristic)
         else:
