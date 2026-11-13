@@ -9,7 +9,6 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
-from engineering_characteristics import (
 from extractor_active import (
     Characteristic,
     add_pdf_balloons,
