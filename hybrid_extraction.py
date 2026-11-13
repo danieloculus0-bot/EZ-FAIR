@@ -231,7 +231,10 @@ def _source_tolerance(item: Any, detected: dict[str, float]) -> tuple[str, float
 
 def _apply_source_tolerances(items: list[Any], detected: dict[str, float]) -> None:
     for item in items:
-        metadata = getattr(item, "metadata", {}) or {}
+        metadata = getattr(item, "metadata", None)
+        if metadata is None:
+            metadata = {}
+            item.metadata = metadata
         # Explicit tolerances printed next to the dimension win. A merely
         # inferred tolerance must never trump the original drawing.
         if metadata.get("tolerance_status") == "explicit":
