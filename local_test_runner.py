@@ -6,7 +6,6 @@ from collections import Counter
 from pathlib import Path
 from typing import Iterable
 
-from engineering_characteristics import (
 from extractor_active import (
     Characteristic,
     SkippedCandidate,
