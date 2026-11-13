@@ -175,3 +175,29 @@ def test_small_radius_and_linear_dimensions_survive_native_pass(tmp_path):
     assert any(abs(float(c.nominal) - .480) < .00001 for c in chars)
     assert any(abs(float(c.nominal) - .320) < .00001 and c.type == "RADIUS" for c in chars)
     assert any(abs(float(c.nominal) - 135) < .00001 and c.type == "°" for c in chars)
+
+
+def test_title_block_decimal_precision_requires_matching_rule():
+    """Fictional dimensions cannot inherit a lower-precision title-block rule."""
+    detected = {"two_place": 0.01, "three_place": 0.005}
+    for raw, expected in [("1.23", "two_place"), ("1.234", "three_place"),
+                          ("1.2345", None), ("1.23456", None)]:
+        item = dim(n=float(raw), status="default")
+        item.raw_text = raw
+        assert hybrid._source_tolerance(item, detected) == (
+            (expected, detected[expected]) if expected else None
+        )
+        hybrid._apply_source_tolerances([item], detected)
+        if expected is None:
+            assert (item.lsl, item.usl) == (None, None)
+            assert item.metadata["tolerance_source"] == "unknown"
+        else:
+            assert item.metadata["tolerance_rule"] == expected
+
+
+def test_explicit_high_precision_limits_are_preserved():
+    item = dim(n=1.2345, limits=(1.2341, 1.2349), status="explicit")
+    item.raw_text = "1.2345"
+    hybrid._apply_source_tolerances([item], {"three_place": 0.005})
+    assert (item.lsl, item.usl) == (1.2341, 1.2349)
+    assert item.metadata["tolerance_source"] == "dimension_explicit"

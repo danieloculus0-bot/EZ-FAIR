@@ -222,7 +222,10 @@ def _source_tolerance(item: Any, detected: dict[str, float]) -> tuple[str, float
     if not decimal:
         return None
     places = len(decimal.group(1))
-    key = {1: "one_place", 2: "two_place"}.get(places, "three_place")
+    key = {1: "one_place", 2: "two_place", 3: "three_place"}.get(places)
+    if key is None:
+        # Four-plus-place dimensions require an explicitly evidenced rule.
+        return None
     # For one-place dimensions, don't guess that two-place tolerances apply.
     if key not in detected:
         return None
